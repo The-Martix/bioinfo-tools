@@ -338,7 +338,7 @@ def get_active_site(structure, ligands_names=[], threshold=8, include_distance=F
                 else: active_site[lig_id].append(res_id)    
     return active_site
 
-# Obtener vecinos de una lista de residuos (la lista es en formato POSITION.CHAIN e.g. 170A)
+# Obtener vecinos de una lista de residuos 'target_residues' (la lista es en formato POSITION.CHAIN e.g. 170A)
 def get_neighbors(structure, target_residues, threshold=8, include_distance=False, include_resname=False):
     residues = get_residues(structure)
     _target_residues = [res for res in residues if f"{res.id[1]}{res.parent.id}" in target_residues]
