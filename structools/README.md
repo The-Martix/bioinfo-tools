@@ -1,6 +1,4 @@
-# Crear el contenido del README.md en formato Markdown
-
-markdown_content = """# Structools - Herramientas para Parsing, Análisis y Edición de Archivos PDB
+# Structools - Herramientas para Parsing, Análisis y Edición de Archivos PDB
 
 **Structools** es una colección de funciones para facilitar el análisis estructural de proteínas en formato PDB.  
 Permite extraer residuos, medir distancias, alinear estructuras, identificar sitios activos e interfaces,  
