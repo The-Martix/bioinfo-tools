@@ -16,5 +16,5 @@ jobs:
         run: |
           git config --global user.email "tucorreo@ejemplo.com"
           git config --global user.name "Tu Nombre"
-          git remote add mirror https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/NOMBRE_ORG/NOMBRE_REPO_DESTINO.git
+          git remote add mirror https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/The Martix/bioinfo-tools.git
           git push --mirror mirror
