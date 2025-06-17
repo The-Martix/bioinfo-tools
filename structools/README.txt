@@ -132,10 +132,3 @@ merge_pdbs(lines1, lines2)
 **Autor:** Franco Salvatore  
 **Licencia:** Libre uso con atribución
 """
-
-# Guardar el contenido en un archivo .md
-file_path = "/mnt/data/README_structools.md"
-with open(file_path, "w") as file:
-    file.write(markdown_content)
-
-file_path
