@@ -1,4 +1,4 @@
-README - How to Import These Libraries from Any Script
+## README - How to Import These Libraries from Any Script
 =======================================================
 
 To use these libraries (structools, aminotools, seqtools) from any Python script on your system,
