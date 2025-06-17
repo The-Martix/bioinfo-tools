@@ -12,7 +12,7 @@ así como editar directamente archivos PDB para modificar, filtrar o reescribir 
 - Biopython  
 - NumPy  
 - ResidueDepth de Biopython (MSMS)  
-- [`aminotools`](https://github.com/SalvaFran/bioinfo-tools/blob/main/structools/README.md) (ya sea en el `PATH` o en la misma carpeta)
+- [`aminotools`](https://github.com/SalvaFran/bioinfo-tools/blob/main/aminotools) (ya sea en el `PATH` o en la misma carpeta)
 
 **Instalación de dependencias:**
 
