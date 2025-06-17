@@ -40,8 +40,10 @@ USAGE IN A SCRIPT
 
 Once configured, you can import the modules from anywhere like this:
 
+```python
     from structools import *
     from aminotools import *
     from seqtools import *
+```
 
 -------------------------------------------------------
