@@ -11,14 +11,18 @@ jobs:
     steps:
       - name: Checkout source repo
         uses: actions/checkout@v4
-	
-      - name: Check TOKEN secret
-        run: echo "Token length: ${{ secrets.TARGET_REPO_TOKEN }} | wc -c"
 
-      - name: Mirror push to organization repo
+      - name: Verificar que el secreto exista (no muestra el valor)
         run: |
+          echo "Longitud del token:"
+          echo "${{ secrets.TARGET_REPO_TOKEN }}" | wc -c
 
+      - name: Configurar identidad de Git
+        run: |
           git config --global user.email "salvaa4532@gmail.com"
-          git config --global user.name "SalvaFran"
+          git config --global user.name "Franco Salvatore"
+
+      - name: Agregar remote y hacer push mirror
+        run: |
           git remote add mirror https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/The-Martix/bioinfo-tools.git
           git push --mirror mirror
