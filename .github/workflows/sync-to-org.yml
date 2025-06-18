@@ -40,4 +40,4 @@ jobs:
           git remote -v
 
           echo "Haciendo push --mirror"
-          git push --mirror main --force
+          git push --mirror mirror
