@@ -16,6 +16,10 @@ jobs:
         run: |
           echo "Longitud del token:"
           echo "${{ secrets.TARGET_REPO_TOKEN }}" | wc -c
+  
+      - name: Validate Token Permissions
+        run: |
+          curl -H "Authorization: Bearer ${{ secrets.TARGET_REPO_TOKEN }}" https://api.github.com/repos/The-Martix/bioinfo-tools || exit 1
 
       - name: Configurar identidad de Git
         run: |
