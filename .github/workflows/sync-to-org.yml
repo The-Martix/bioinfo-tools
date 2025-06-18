@@ -16,7 +16,7 @@ jobs:
         run: |
           echo "Longitud del token:"
           echo "${{ secrets.TARGET_REPO_TOKEN }}" | wc -c
-  
+
       - name: Validate Token Permissions
         run: |
           curl -H "Authorization: Bearer ${{ secrets.TARGET_REPO_TOKEN }}" https://api.github.com/repos/The-Martix/bioinfo-tools || exit 1
@@ -27,9 +27,9 @@ jobs:
           git config --global user.name "Franco Salvatore"
 
       - name: Show remotes and branches
-  	run: |
-    	  git remote -v
-    	  git branch -a
+        run: |
+          git remote -v
+          git branch -a
 
       - name: Agregar remote y hacer push mirror
         run: |
