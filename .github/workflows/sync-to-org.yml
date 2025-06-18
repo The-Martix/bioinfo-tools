@@ -26,6 +26,11 @@ jobs:
           git config --global user.email "salvaa4532@gmail.com"
           git config --global user.name "Franco Salvatore"
 
+      - name: Show remotes and branches
+  	run: |
+    	  git remote -v
+    	  git branch -a
+
       - name: Agregar remote y hacer push mirror
         run: |
           git remote add mirror https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/The-Martix/bioinfo-tools.git
