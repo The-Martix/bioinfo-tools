@@ -12,27 +12,21 @@ jobs:
       - name: Checkout source repo
         uses: actions/checkout@v4
 
-      - name: Verificar que el secreto exista (no muestra el valor)
-        run: |
-          echo "Longitud del token:"
-          echo "${{ secrets.TARGET_REPO_TOKEN }}" | wc -c
-
-      - name: Validate Token Permissions
-        run: |
-          curl -H "Authorization: Bearer ${{ secrets.TARGET_REPO_TOKEN }}" https://api.github.com/repos/The-Martix/bioinfo-tools || exit 1
-
-      - name: Configurar identidad de Git
+      - name: Configurar git user
         run: |
           git config --global user.email "salvaa4532@gmail.com"
           git config --global user.name "Franco Salvatore"
 
-      - name: Show remotes and branches
-        run: |
-          git remote -v
-          git branch -a
+      - name: Remove existing mirror remote
+        run: git remote remove mirror || true
 
-      - name: Agregar remote y hacer push mirror
+      - name: Add mirror remote with token
         run: |
-          git remote remove mirror || true
           git remote add mirror https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/The-Martix/bioinfo-tools.git
-          git push --mirror mirror
+          
+      - name: Show remote URL
+        run: git remote -v
+
+      - name: Push main branch to mirror
+        run: |
+          git push mirror main --force
