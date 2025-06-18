@@ -104,7 +104,10 @@ write_pdb("complejo.pdb", merged_lines)
 ## 🧩 Funciones disponibles
 
 ```python
-get_structure(path)
+get_structure(path, format='pdb')
+cif_to_pdb(cif_file)
+pdb_to_cif(pdb_file)
+get_sequence(structure)
 get_residues(structure)
 get_non_residues(structure)
 get_CA(structure)
@@ -118,9 +121,16 @@ get_neighbors(structure, target_residues, threshold)
 get_interface(structure, threshold)
 get_surface(structure)
 read_pdb(path)
+get_ligand_atoms(lines)
+rename_hetatom(lines)
+update_ligand_line(line)
+merge_ligand_to_pdb(line)
 write_pdb(path, lines)
+write_structure_to_pdb(structure)
+filter_hetatoms(lines)
+filter_chains(lines)
 remove_water(lines)
-merge_pdbs(lines1, lines2)
+reindex_chains(lines)
 ```
 
 ---

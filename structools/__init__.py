@@ -1,6 +1,6 @@
 # This script/library gets the PDB structure of a given pdb file and set structural classifications measuring distances of CAMs within a given threshold
 
-from Bio.PDB import PDBParser
+from Bio.PDB import PDBParser, MMCIFIO, MMCIFParser
 from Bio.PDB import Superimposer
 from Bio.PDB import PDBIO
 from Bio.PDB.ResidueDepth import get_surface as GetRDSurface
@@ -201,11 +201,32 @@ def write_structure_to_pdb(structure, outfile):
     io.save(outfile)
     print(f"PDB file successfully generated at {outfile}")
 
+# Convertir .pdb a .cif
+def pdb_to_cif(input_pdb):
+    structure = get_structure(input_pdb)
+    io = MMCIFIO()
+    io.set_structure(structure)
+    outfile = input_pdb.replace(".pdb", ".cif")
+    io.save(outfile)
+    print(f"PDB succesfully converted to CIF at {outfile}")
+
+# Convertir de .cif a .pdb
+def cif_to_pdb(input_cif):
+    structure = get_structure(input_cif, format="cif")
+    io = PDBIO()
+    io.set_structure(structure)
+    outfile = input_cif.replace(".cif", ".pdb")
+    io.save(outfile)
+    print(f"CIF successfully converted to PDB at {outfile}")
+
 ####################################################################################### PARSING PDBS ##################################################################################################
 
 # Obtener estructura de PDBParser
-def get_structure(pdb_path):
-    parser = PDBParser(QUIET=True)  # QUIET=True evita warnings innecesarios
+def get_structure(pdb_path, format="pdb"):
+    if format == "pdb": parser = PDBParser(QUIET=True)  # QUIET=True evita warnings innecesarios
+    elif format == "cif": parser = MMCIFParser(QUIET=True)
+    else: raise ValueError(f"format '{format}' is not a valid format. Try whether with '.pdb' or '.cif' format")
+
     structure = parser.get_structure("model", pdb_path)
     return structure
 
