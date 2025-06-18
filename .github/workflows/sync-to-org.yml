@@ -33,5 +33,6 @@ jobs:
 
       - name: Agregar remote y hacer push mirror
         run: |
+          git remote remove mirror || true
           git remote add mirror https://x-access-token:${{ secrets.TARGET_REPO_TOKEN }}@github.com/The-Martix/bioinfo-tools.git
-          git push --mirror mirror 
+          git push --mirror mirror
