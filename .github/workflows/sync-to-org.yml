@@ -27,9 +27,9 @@ jobs:
           git config --global user.name "Franco Salvatore"
 
       - name: Show remotes and branches
-  	    run: |
-    	    git remote -v
-    	    git branch -a
+  	run: |
+    	  git remote -v
+    	  git branch -a
 
       - name: Agregar remote y hacer push mirror
         run: |
