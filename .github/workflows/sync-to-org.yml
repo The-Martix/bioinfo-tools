@@ -34,10 +34,10 @@ jobs:
         run: |
           echo "Agregando remote 'mirror' con token..."
           git remote remove mirror || true
-          git remote add mirror https://x-access-token:${TOKEN}@github.com/The-Martix/bioinfo-tools.git
+          git remote add mirror https://x-access-token:{TOKEN}@github.com/The-Martix/bioinfo-tools.git
 
           echo "Verificando remotes:"
           git remote -v
 
           echo "Haciendo push --mirror"
-          git push --mirror mirror
+          git push --mirror main --force
