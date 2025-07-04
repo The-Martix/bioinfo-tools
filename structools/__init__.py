@@ -2,7 +2,7 @@
 
 from Bio.PDB import PDBParser, MMCIFIO, MMCIFParser
 from Bio.PDB import Superimposer
-from Bio.PDB import PDBIO
+from Bio.PDB import PDBIO, StructureBuilder
 from Bio.PDB.ResidueDepth import get_surface as GetRDSurface
 from Bio.PDB.ResidueDepth import min_dist
 import copy
@@ -184,13 +184,15 @@ def reindex_chains(lines, start_index=1):
     return new_lines
 
 # Obtener seq proteica (por cadenas)
-def get_sequence(structure):
+def get_sequence(structure, ignore_chains=[]):
     seqs = {}
     for model in structure:
         for chain in model:
+            if chain.id in ignore_chains: continue
             seqs[chain.id] = ""
             for res in chain:
                 if not res.resname in residues_names: continue
+                for i in range(res.id[1]-1-len(seqs[chain.id])): seqs[chain.id] += "X"  # Rellenar gaps con X                
                 seqs[chain.id] += aminotools.convert_amino_acid_letter(res.resname)
     return seqs
 
@@ -200,6 +202,29 @@ def write_structure_to_pdb(structure, outfile):
     io.set_structure(structure)
     io.save(outfile)
     print(f"PDB file successfully generated at {outfile}")
+
+# Mergear múltiples estructuras de Bio.PDB (structures, i.e. list) en una sola
+def merge_structures(structures):
+    builder = StructureBuilder.StructureBuilder()
+    builder.init_structure("Merged")
+    builder.init_model(0)
+    
+    chain_id = ord("A")
+    for i, structure in enumerate(structures):
+        for model in structure:
+            for chain in model:
+                new_id = chr(chain_id)
+                builder.init_chain(new_id)
+                for residue in chain:
+                    builder.structure[0][new_id].add(residue.copy())
+                chain_id += 1
+
+    merged_structure = builder.get_structure()
+    
+    io = PDBIO()
+    io.set_structure(merged_structure)
+
+    return merged_structure
 
 # Convertir .pdb a .cif
 def pdb_to_cif(input_pdb):
