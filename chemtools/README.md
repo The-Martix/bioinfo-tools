@@ -8,6 +8,7 @@ En el futuro se espera seguir contribuyendo con esta libreria para hacerla mas c
 
 ## FUNCIONALIDADES PRINCIPALES
 
+- Convertir formatos de archivos (e.g. pdb->sdf, sdf->pdb, smi->pdb, mol2->sdf, etc)
 - Extraer ligandos específicos desde archivos `.pdb`.
 - Guardar solo los ligandos seleccionados en un nuevo archivo `.pdb`.
 - Convertir un archivo `.pdb` de un ligando a su representación SMILES.
@@ -43,6 +44,12 @@ print(smiles)
 merge_sdf(["lig1.sdf", "lig2.sdf"], "combinado.sdf")
 ```
 
+
+### 4. Convertir archivos
+```python
+convert_molecule_format(lig1.sdf, lig2.pdb)
+```
+
 ---
 
 ## DEFINICIÓN DE FUNCIONES
@@ -75,12 +82,15 @@ def merge_sdf(input_files: list[str], output_file: str):
                     fout.write("$$$$\n")
 ```
 
+...
+
 ---
 
 ## REQUISITOS
 
 - Python 3.9 o superior  
 - [RDKit](https://www.rdkit.org/)  
+- [OpenBabel] 3.1.1 o superior (https://openbabel.org/docs/Installation/install.html)
 - `structools`: módulo propio o externo para manejo de archivos PDB
 
 ---

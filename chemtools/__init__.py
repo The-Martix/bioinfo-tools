@@ -30,3 +30,34 @@ def merge_sdf(input_files: list[str], output_file: str):
                     fout.write("$$$$\n")
 
     print(f"Archivos SDF combinados en {output_file}")
+
+import subprocess
+
+# Conversor de archivos moleculares
+def convert_molecule_format(input_file, output_file):
+    """
+    Convierte un archivo molecular entre formatos PDB y SDF usando Open Babel CLI.
+    
+    Parámetros:
+    - input_file (str): ruta al archivo de entrada (PDB o SDF).
+    - output_file (str): ruta al archivo de salida (PDB o SDF).
+    
+    Requiere que 'obabel' esté instalado y en el PATH del sistema.
+    """
+    # Detectar formatos por extensión
+    ext_in = input_file.split('.')[-1].lower()
+    ext_out = output_file.split('.')[-1].lower()
+    
+    formats = {'pdb': 'pdb', 'sdf': 'sdf', 'mol2': 'mol2', 'mol': 'mol', 'smi': 'smi'}
+    
+    if ext_in not in formats or ext_out not in formats:
+        raise ValueError("Formatos soportados: pdb, sdf, mol2, mol, smi")
+    
+    cmd = ['obabel', '-i' + formats[ext_in], input_file,
+                  '-o' + formats[ext_out], '-O', output_file]
+    
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"Archivo convertido: {input_file} → {output_file}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error en la conversión: {e}")
