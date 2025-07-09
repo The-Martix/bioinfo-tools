@@ -2,6 +2,7 @@
 
 Este paquete reúne varias herramientas útiles para trabajar con archivos químicos en formatos PDB y SDF.  
 Incluye funciones para extraer ligandos específicos de archivos PDB, convertir ligandos a SMILES, y combinar múltiples archivos SDF en uno solo.
+En el futuro se espera seguir contribuyendo con esta libreria para hacerla mas completa. Por ejemplo, que se pueda convertir smiles a sdf y viceversa, etc 
 
 ---
 
