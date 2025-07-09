@@ -11,6 +11,26 @@ def write_ligands_pdb(input_pdb, ligands: list[str], output_pdb):
     ligand_lines = structools.get_hetatoms_lines(lines, hetatoms=ligands)
     structools.write_pdb(output_pdb, ligand_lines)
 
+# Esta funcion remueve los atomos seleccionados de un PDB de entrada
+def remove_atoms_from_pdb(input_pdb: str, output_pdb: str, atoms_to_remove: list[str]):
+    """
+    Elimina los átomos especificados de un archivo PDB y guarda el resultado en un nuevo archivo.
+    
+    Parámetros:
+    - input_pdb (str): Ruta al archivo PDB de entrada.
+    - output_pdb (str): Ruta al archivo PDB de salida.
+    - atoms_to_remove (list[str]): Lista de nombres de átomos a eliminar.
+    """
+    lines = structools.open_pdb(input_pdb)
+    new_lines = []
+    for line in lines:
+        if line.startswith("ATOM") or line.startswith("HETATM") or line.startswith("HETATOM"):
+            splits = structools.remove_gaps(line.split(" "))
+            atom_name = splits[2]  # Nombre del átomo
+            if atom_name not in atoms_to_remove: new_lines.append(line)
+        else: new_lines.append(line)
+    structools.write_pdb(output_pdb, new_lines)
+
 # Esta funcion toma un archivo PDB con SOLO los ligandos de interes y genera su SMILES correspondiente
 def pdb_to_smiles(input_pdb: str, removeHs=False) -> str:
     mol = Chem.MolFromPDBFile(input_pdb, removeHs=removeHs)
