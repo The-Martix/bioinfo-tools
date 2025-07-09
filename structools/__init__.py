@@ -76,13 +76,22 @@ def write_pdb(pdb_file, new_lines):
     print(f"Se ha escrito el archivo {pdb_file} con exito.")
 
 # Obtengo las lineas de atomos del ligando del Docking
-def get_ligand_atoms(lines):
+def get_hetatoms_lines(lines, hetatoms:list[str]):
     atom_lines = []
     for line in lines:
-        if line.startswith("ATOM"):
-            new_line = line.replace("ATOM", "HETATM")
-            atom_lines.append(new_line)
+        if line.startswith("HETATOM") or line.startswith("HETATM"):
+            splits = remove_gaps(line.split(" "))
+            if len(splits) < 4: continue  # Evitar lineas mal form
+            hetatom_id = splits[3]
+            if hetatom_id in hetatoms:
+                atom_lines.append(line)
     return atom_lines
+
+# Esta funcion toma un PDB en el que estan tus ligandos de interes, una lista con los nombres de los ligandos y devuelve un pdb con solo los ligandos de interes
+def write_ligands_pdb(input_pdb, ligands: list[str], output_pdb):
+    lines = open_pdb(input_pdb)
+    ligand_lines = get_hetatoms_lines(lines, hetatoms=ligands)
+    write_pdb(output_pdb, ligand_lines)
 
 # Renombrar ligando
 def rename_hetatom(pdb_lines, hetatom_dict):
