@@ -1,7 +1,7 @@
 ## README - How to Import These Libraries from Any Script 
 =======================================================
 
-To use these libraries (structools, aminotools, seqtools) from any Python script on your system,
+To use these libraries (structools, aminotools, seqtools, chemtools) from any Python script on your system,
 you need to add the folder containing them to your global PYTHONPATH. This tells Python where to look for the modules.
 
 -------------------------------------------------------
@@ -44,6 +44,7 @@ Once configured, you can import the modules from anywhere like this:
     from structools import *
     from aminotools import *
     from seqtools import *
+    from chemtools import *
 ```
 
 -------------------------------------------------------
