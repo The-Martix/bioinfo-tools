@@ -2,8 +2,68 @@
 
 import os
 
+# Lista de aminoacidos
+amino_acids = ["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V", "X"]
+
+# List de bases
+dna_nucleotides = ["A", "T", "C", "U"]
+rna_nucleotides = ["A", "U", "C", "G"]
+
+# Esta funcion chequea que un archivo fasta sea valido (hay que indicar los tipos de seq del fasta en la variable 'seq_type' i.ie "protein", "dna", "rna")
+def check_fasta(fasta_file, seq_type="protein"):
+    """
+    Verifica si un archivo FASTA contiene secuencias de aminoácidos o nucleótidos válidas.
+    
+    Parámetros:
+    - fasta_file (str): Ruta al archivo FASTA.
+    - seq_type (str): Tipo de secuencia esperada ("protein", "dna", "rna").
+    
+    Retorna:
+    - bool: True si el archivo es válido, False en caso contrario.
+    """
+    valid_nucleotides = dna_nucleotides if seq_type == "dna" else rna_nucleotides if seq_type == "rna" else amino_acids
+    with open(fasta_file, 'r') as file:
+        for i, line in enumerate(file):
+            if not line.startswith(">"):  # Ignorar líneas de encabezado
+                for char in line.strip():
+                    if char not in valid_nucleotides:
+                        return False, f"Invalid character '{char}' found in sequence '{line.strip()}' at line {i}. Expected characters: {valid_nucleotides}"
+    return True, ""
+
+# Esta funcion corrige errores comunes en archivos fasta, como espacios en blanco o caracteres no válidos.
+def fix_fasta(fasta_file, seq_type="protein", outfile=None):
+    if outfile is None: outfile = fasta_file
+    """
+    Corrige errores comunes en archivos FASTA, como espacios en blanco o caracteres no válidos.
+    
+    Parámetros:
+    - fasta_file (str): Ruta al archivo FASTA.
+    - seq_type (str): Tipo de secuencia esperada ("protein", "dna", "rna").
+    
+    Retorna:
+    - str: Ruta al archivo FASTA corregido.
+    """
+    valid_chars = dna_nucleotides if seq_type == "dna" else rna_nucleotides if seq_type == "rna" else amino_acids
+    new_lines = []
+    with open(fasta_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith(">"):
+                new_lines.append(line)
+            else:
+                cleaned = "".join([c.upper() if c.upper() in valid_chars else "X" for c in line])
+                new_lines.append(cleaned)
+
+    with open(outfile, 'w') as f:
+        for line in new_lines:
+            f.write(line + "\n")
+
+    print(f"FASTA file fixed at {outfile}")
+
 # Extraer seq de un fasta
-def open_fasta(fasta_file):
+def open_fasta(fasta_file, seq_type="protein"):
+    check, msg = check_fasta(fasta_file, seq_type)
+    if not check: raise ValueError(f"Invalid Fasta file. {msg}")
     seqs = {}
     file = open(fasta_file, "r")
     lines = file.readlines()
@@ -40,6 +100,8 @@ def merge_fastas(fasta_files, outfile):
 
 # Genera un archivo fatsa con el MSA generado por mafft (mafft debe estar en el PATH)
 def mafft_MSA(fasta_file, outfile):
+    check, msg = check_fasta(fasta_file)
+    if not check: raise ValueError(f"Invalid FASTA file. {msg}")
     os.system(f"mafft {fasta_file} > {outfile}")
     print(f"MSA succesfully generated at {outfile}")
 
