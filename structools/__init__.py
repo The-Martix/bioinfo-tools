@@ -8,6 +8,8 @@ from Bio.PDB.ResidueDepth import min_dist
 import copy
 import aminotools
 import numpy as np
+from scipy.spatial import cKDTree
+import os
 
 residues_names = ["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"]
 
@@ -69,11 +71,20 @@ def unparse_pdb_line(atom_dict):
     )
 
 # Escribir archivo pdb
-def write_pdb(pdb_file, new_lines):
+def write_pdb(pdb_file, new_lines, show_msg=True):
     file = open(pdb_file, 'w')
     for line in new_lines: file.write(line)
     file.close()
-    print(f"Se ha escrito el archivo {pdb_file} con exito.")
+    if show_msg: print(f"Se ha escrito el archivo {pdb_file} con exito.")
+
+# Esta funcion te deja cambiar el identifier de una linea de atomo (por ej ATOM->HETATM, etc)
+def update_identifier(lines, old_identifier, new_identifier):
+    new_lines = []
+    for line in lines:
+        if line.startswith(old_identifier):
+            line = line.replace(old_identifier, new_identifier)
+        new_lines.append(line)
+    return new_lines
 
 # Obtengo las lineas de atomos del ligando del Docking
 def get_hetatoms_lines(lines, hetatoms:list[str]):
@@ -120,8 +131,8 @@ def update_ligand_line(ligand_line, last_reference_line):
 
     
 # Meto las lineas del ligando en el pdb de la proteina
-def merge_ligand_to_pdb(reference_pdb, ligand_pdb):
-    atom_lines = get_ligand_atoms(open_pdb(ligand_pdb))
+def merge_ligand_to_pdb(reference_pdb, ligand_pdb, hetatoms):
+    atom_lines = get_hetatoms_lines(open_pdb(ligand_pdb), hetatoms=hetatoms)
     reference_lines = open_pdb(reference_pdb)
     new_lines = []
     for line in reference_lines[:-1]: new_lines.append(line)
@@ -236,20 +247,22 @@ def merge_structures(structures):
     return merged_structure
 
 # Convertir .pdb a .cif
-def pdb_to_cif(input_pdb):
+def pdb_to_cif(input_pdb, outdir=None):
+    outfile = input_pdb.replace(".pdb", ".cif")
+    if not outdir is None: outfile = os.path.join(outdir, os.path.basename(outfile))
     structure = get_structure(input_pdb)
     io = MMCIFIO()
     io.set_structure(structure)
-    outfile = input_pdb.replace(".pdb", ".cif")
     io.save(outfile)
     print(f"PDB succesfully converted to CIF at {outfile}")
 
 # Convertir de .cif a .pdb
-def cif_to_pdb(input_cif):
+def cif_to_pdb(input_cif, outdir=None):
+    outfile = input_cif.replace(".cif", ".pdb")
+    if not outdir is None: outfile = os.path.join(outdir, os.path.basename(outfile))
     structure = get_structure(input_cif, format="cif")
     io = PDBIO()
     io.set_structure(structure)
-    outfile = input_cif.replace(".cif", ".pdb")
     io.save(outfile)
     print(f"CIF successfully converted to PDB at {outfile}")
 
@@ -271,6 +284,11 @@ def map(structure, residues_list):
 # Medir distancia entre dos residuos
 def distance(res1, res2):
     return np.linalg.norm(res1.center_of_mass() - res2.center_of_mass())
+
+# Medir distancias
+def calculate_distance(coords1, coords2):
+    try: return np.linalg.norm(coords1 - coords2)
+    except: raise ValueError(f"coords must be a 3D list. {coords1} vs {coords2}")
 
 # Obtener residuos de una estructura PDB
 def get_residues(structure):
@@ -300,18 +318,34 @@ def get_CA(structure):
             if atom.id == "CA": CA.append(atom)
     return CA
 
-# Obtener los atomos con un dado ID de los residuos de la proteina (si ids esta vacia incluye todos los atomos)
-def get_atoms(structure, ids=[], include_hetatoms=False):
-    atoms = {}
+# Obtener los atomos con un dado ID de los residuos de la proteina (si ids esta vacia incluye todos los atomos). as_dict lo devuelve en forma de diccionario, sino es una lista
+def get_atoms(structure, ids=[], include_hetatoms=False, as_dict=False):
+    atoms = {} if as_dict else []
+    
+    # Obtener residuos estándar
     residues = get_residues(structure)
-    if include_hetatoms:
-        non_residues = get_non_residues(structure)
-        for res in non_residues: residues.append(res)
+    
+    # Agregar HETATM si se solicita
+    if include_hetatoms: residues += get_non_residues(structure)
+    
     for res in residues:
+        res_id = res.id[1]
+        chain_id = res.parent.id
+        full_id = f"{chain_id}{res_id}"
+        
+        # Filtrado por ID si corresponde
+        if ids and res_id not in ids: continue
+        
+        if as_dict:
+            if full_id not in atoms: atoms[full_id] = []
+        else: atom_list = []
+        
         for atom in res:
-            if atom.id in ids or len(ids) == 0:
-                try: atoms[f"{res.parent.id}{res.id[1]}"].append(atom)
-                except: atoms[f"{res.parent.id}{res.id[1]}"] = [atom]
+            if as_dict: atoms[full_id].append(atom)
+            else: atom_list.append(atom)
+        
+        if not as_dict and atom_list: atoms.append(atom_list)
+    
     return atoms
 
 # Obtener coordenadas de lista de atomos
@@ -396,19 +430,21 @@ def get_active_site(structure, ligands_names=[], threshold=8, include_distance=F
 # Obtener vecinos de una lista de residuos 'target_residues' (la lista es en formato POSITION.CHAIN e.g. 170A)
 def get_neighbors(structure, target_residues, threshold=8, include_distance=False, include_resname=False):
     residues = get_residues(structure)
-    _target_residues = [res for res in residues if f"{res.id[1]}{res.parent.id}" in target_residues]
+    non_residues = get_non_residues(structure)
+    _target_residues = [res for res_list in [residues, non_residues] for res in res_list if f"{res.id[1]}{res.parent.id}" in target_residues]
     neighbors = {}
     for target_res in _target_residues:
-        for res in residues:
-            if f"{res.id[1]}{res.parent.id}" == f"{target_res.id[1]}{target_res.parent.id}": continue
-            dist = distance(target_res, res)
-            if dist <= threshold:
-                key = f"{target_res.resname}{target_res.id[1]}{target_res.parent.id}"
-                val = f"{res.resname}{res.id[1]}{res.parent.id}"
-                if not include_resname: key = key.replace(target_res.resname, ""); val.replace(res.resname, "")
-                if include_distance: val = [val, dist]
-                if key not in neighbors: neighbors[key] = [val]
-                else: neighbors[key].append(val)
+        for res_list in [residues, non_residues]:
+            for res in res_list:
+                if f"{res.id[1]}{res.parent.id}" == f"{target_res.id[1]}{target_res.parent.id}": continue
+                dist = distance(target_res, res)
+                if dist <= threshold:
+                    key = f"{target_res.resname}{target_res.id[1]}{target_res.parent.id}"
+                    val = f"{res.resname}{res.id[1]}{res.parent.id}"
+                    if not include_resname: key = key.replace(target_res.resname, ""); val.replace(res.resname, "")
+                    if include_distance: val = [val, dist]
+                    if key not in neighbors: neighbors[key] = [val]
+                    else: neighbors[key].append(val)
     return neighbors
 
 # Obtener residuos de interfaz
@@ -452,3 +488,218 @@ def get_surface(structure, threshold=5, include_distance=False, include_resname=
             if include_distance: res_id = [res_id, dist]
             surface.append(res_id)  
     return surface
+
+# Obtener residuos segun su grupo quimico (chem_class). main_chemical es un bool que indica si queres filtrar segun su grupo quimico principal o no (ej: PHE es principalmente aromatic pero tambien es hydrophobic)
+def get_residues_by_chemical(residues, chem_class="aromatic", main_chemical=False):
+    if not main_chemical: return [res for res in residues if chem_class.lower() in aminotools.get_all_chemical_classifications(res.resname)]
+    else: return [res for res in residues if aminotools.get_main_chemical_classification(res.resname) == chem_class.lower()]
+
+###################### CONTACTOS ################################
+
+# Atomos terminales de cada residuo
+aminoacids_terminal_atoms_dict = {
+    "ALA": {"CB"}, "VAL": {"CG1", "CG2"}, "LEU": {"CD1", "CD2"}, "ILE": {"CD1"}, "MET": {"CE"}, "PRO": {"CD"},
+    "PHE": {"CZ"}, "TYR": {"CZ", "OH"}, "TRP": {"CH2"}, "CYS": {"SG"},
+    "SER": {"OG"}, "THR": {"OG1", "CG2"}, "ASN": {"OD1", "ND2"}, "GLN": {"OE1", "NE2"},
+    "ASP": {"OD1", "OD2"}, "GLU": {"OE1", "OE2"}, "HIS": {"NE2", "CE1"}, "LYS": {"NZ"}, "ARG": {"NH1", "NH2"}, "GLY": set()
+}
+
+# Lista con estado de valencia de atomos
+valence_dict = {
+    "H": 1, "C": 4, "N": 3, "O": 2, "F": 1, "P": 3, "S": 2, "CL": 1,
+    "BR": 1, "I": 1, "NA": 1, "K": 1, "MG": 2, "CA": 2, "ZN": 2, "FE": 2, "CU": 2
+}
+
+# Funcion para obtener atomos terminales de una dada lista de atomos
+def get_terminal_atoms(atoms, valence_dict, threshold=2):
+    terminal_atoms = set()
+    grouped_atoms = {}
+    for atom in atoms:
+        res_id = (atom.parent.resname, atom.parent.id[1], atom.parent.parent.id)
+        grouped_atoms.setdefault(res_id, []).append(atom)
+
+    for res_id, res_atoms in grouped_atoms.items():
+        coords = [a.coord for a in res_atoms if a.name[0] != "H"]
+        tree = cKDTree(coords)
+        for i, atom in enumerate(res_atoms):
+            if atom.name[0] == "H": continue
+            try:
+                max_n = valence_dict.get(atom.name[:2], valence_dict.get(atom.name[0], 4))
+            except: continue
+            neighbors = tree.query_ball_point(atom.coord, threshold)
+            if len(neighbors) - 1 < max_n:
+                terminal_atoms.add(atom)
+    return terminal_atoms
+
+# Obtener interacciones hidrofobicas (C-C, C-S o S-S) entre 2 grupos de atomos
+def get_hydrophobic_contacts(
+    atoms1, atoms2, threshold=4.5,
+    include_resname=False, include_distance=False, include_atom=False,
+    terminal_atom_dict=aminoacids_terminal_atoms_dict,
+    valence_dict=valence_dict
+):
+    contacts = {}
+
+    # Precomputar terminales
+    term_atoms1 = set()
+    term_atoms2 = set()
+
+    for atom in atoms1:
+        if atom.parent.resname in terminal_atom_dict:
+            if atom.name in terminal_atom_dict[atom.parent.resname] and atom.name[0] in {"C", "S"}:
+                term_atoms1.add(atom)
+
+    for atom in atoms2:
+        if atom.parent.resname in terminal_atom_dict:
+            if atom.name in terminal_atom_dict[atom.parent.resname] and atom.name[0] in {"C", "S"}:
+                term_atoms2.add(atom)
+
+    # Agregar terminales dinámicos si no están en el diccionario
+    extra1 = get_terminal_atoms(atoms1, valence_dict)
+    extra2 = get_terminal_atoms(atoms2, valence_dict)
+
+    term_atoms1 |= {a for a in extra1 if a.name[0] in {"C", "S"}}
+    term_atoms2 |= {a for a in extra2 if a.name[0] in {"C", "S"}}
+
+    for atom1 in term_atoms1:
+        if atom1.parent.resname == "GLY": continue
+        for atom2 in term_atoms2:
+            if atom2.parent.resname == "GLY": continue
+            dist = calculate_distance(atom1.coord, atom2.coord)
+            if dist > threshold: continue
+
+            key = f"{atom1.parent.resname}{atom1.parent.id[1]}{atom1.parent.parent.id}" if include_resname else f"{atom1.parent.id[1]}{atom1.parent.parent.id}"
+            value = f"{atom2.parent.resname}{atom2.parent.id[1]}{atom2.parent.parent.id}" if include_resname else f"{atom2.parent.id[1]}{atom2.parent.parent.id}"
+
+            if include_atom:
+                key = f"{key}_{atom1.name}"
+                value = f"{value}_{atom2.name}"
+
+            if include_distance:
+                value = [value, dist]
+
+            contacts.setdefault(key, []).append(value)
+
+    return contacts
+
+# Átomos aromáticos conocidos por residuo
+aromatic_atoms_dict = {
+    "PHE": {"CG", "CD1", "CD2", "CE1", "CE2", "CZ"},
+    "TYR": {"CG", "CD1", "CD2", "CE1", "CE2", "CZ"},
+    "TRP": {"CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2"},
+    "HIS": {"CG", "ND1", "CD2", "CE1", "NE2"}
+    # Para ligandos, se detectará dinámicamente
+}
+
+# Para ligandos, encontrar atomos aromaticos
+def get_aromatic_atoms_by_residue(residues):
+    # Detección naive: 6 átomos planos conectados en ciclo con distancias ~1.4 Å
+    # Aquí simplemente marcamos todos los C/N planos con 2 o 3 conexiones como candidatos
+    aromatic_atoms = set()
+    for residue in residues:
+        atoms = [a for a in residue.get_atoms() if a.name[0] not in {"H"}]
+        tree = cKDTree([a.coord for a in atoms])
+        for i, atom in enumerate(atoms):
+            neighbors = tree.query_ball_point(atom.coord, 1.6)
+            if len(neighbors) in {2, 3} and atom.name[0] in {"C", "N"}:
+                aromatic_atoms.add(atom)
+    return aromatic_atoms
+
+# Encontrar contactos aromaticos entre distintas listas de atomos
+def get_aromatic_contacts(
+    atoms1, atoms2, threshold=5.5,
+    include_resname=False, include_distance=False, include_atom=False,
+    aromatic_atom_dict=aromatic_atoms_dict
+):
+    contacts = {}
+
+    def is_aromatic(atom):
+        resname = atom.parent.resname
+        if resname in aromatic_atom_dict:
+            return atom.name in aromatic_atom_dict[resname]
+        return atom in aromatic_dynamic_atoms
+
+    # Precalcular átomos aromáticos dinámicos
+    residues1 = {a.parent for a in atoms1 if a.parent.resname not in aromatic_atom_dict}
+    residues2 = {a.parent for a in atoms2 if a.parent.resname not in aromatic_atom_dict}
+    aromatic_dynamic_atoms = get_aromatic_atoms_by_residue(residues1 | residues2)
+
+    aromatic1 = [a for a in atoms1 if is_aromatic(a)]
+    aromatic2 = [a for a in atoms2 if is_aromatic(a)]
+
+    for atom1 in aromatic1:
+        for atom2 in aromatic2:
+            if atom1 == atom2: continue
+            dist = calculate_distance(atom1.coord, atom2.coord)
+            if dist > threshold: continue
+
+            key = f"{atom1.parent.resname}{atom1.parent.id[1]}{atom1.parent.parent.id}" if include_resname else f"{atom1.parent.id[1]}{atom1.parent.parent.id}"
+            value = f"{atom2.parent.resname}{atom2.parent.id[1]}{atom2.parent.parent.id}" if include_resname else f"{atom2.parent.id[1]}{atom2.parent.parent.id}"
+
+            if include_atom:
+                key = f"{key}_{atom1.name}"
+                value = f"{value}_{atom2.name}"
+
+            if include_distance:
+                value = [value, dist]
+
+            contacts.setdefault(key, []).append(value)
+
+    return contacts
+
+# Obtener los puentes de hidrogeno entre dos listas de atomos
+def get_hbond_contacts(
+    atoms1, atoms2, threshold=3.5, min_angle=120, max_angle=180, donors_elements=("N", "O", "F", "S"),
+    include_resname=False, include_distance=False, include_angle=False, include_atom=False
+):
+    contacts = {}
+
+    def is_donor(atom): return (atom.name[0] in donors_elements) and ("H" in atom.name.upper())
+
+    def get_angle(donor, acceptor):
+        neighbors = [a for a in donor.parent.get_atoms() if a != donor]
+        if neighbors:
+            v1 = acceptor.coord - donor.coord
+            v2 = neighbors[0].coord - donor.coord
+            cosine = np.dot(v1, v2) / (np.linalg.norm(v1)*np.linalg.norm(v2))
+            return np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0)))
+        else: return 180  # asumo ideal si no hay vecinos
+
+    def process_pair(donor, acceptor):
+        dist = calculate_distance(donor.coord, acceptor.coord)
+        if dist > threshold:
+            return
+
+        angle = get_angle(donor, acceptor)
+        if not (min_angle <= angle <= max_angle):
+            return
+
+        key = f"{donor.parent.resname}{donor.parent.id[1]}{donor.parent.parent.id}" if include_resname else f"{donor.parent.id[1]}{donor.parent.parent.id}"
+        value = f"{acceptor.parent.resname}{acceptor.parent.id[1]}{acceptor.parent.parent.id}" if include_resname else f"{acceptor.parent.id[1]}{acceptor.parent.parent.id}"
+
+        if include_atom:
+            key = f"{key}_{donor.name}"
+            value = f"{value}_{acceptor.name}"
+
+        if include_distance or include_angle:
+            extras = []
+            if include_distance:
+                extras.append(dist)
+            if include_angle:
+                extras.append(angle)
+            value = [value] + extras
+
+        contacts.setdefault(key, []).append(value)
+
+    for atom1 in atoms1:
+        for atom2 in atoms2:
+            if atom1 == atom2:
+                continue
+            # Caso 1: atom1 donante, atom2 aceptor
+            if is_donor(atom1) and (atom2.name[0] in donors_elements):
+                process_pair(atom1, atom2)
+            # Caso 2: atom2 donante, atom1 aceptor
+            if is_donor(atom2) and (atom1.name[0] in donors_elements):
+                process_pair(atom2, atom1)
+
+    return contacts

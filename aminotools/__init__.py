@@ -38,8 +38,9 @@ def get_volume(aa):
     return volume
 
 # Determines the chemical group(s) of a given amino acid (1-letter code)
-
 def get_main_chemical_classification(aa):
+    aa = aa.upper()
+    if len(aa) == 3: aa = convert_amino_acid_letter(aa)
     return {
         'D': 'negative', 'E': 'negative',
         'K': 'positive', 'R': 'positive', 'H': 'positive',
