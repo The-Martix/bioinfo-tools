@@ -180,6 +180,103 @@ def filter_chains(lines, accepted_chains=[]):
         else: new_lines.append(line)
     return new_lines
 
+# Mergear cadenas
+def merge_chains(lines, ref_chain:str, merging_chains:list):
+    ''' 
+    Mergear cadenas (merging_chains) de un PDB a la cadena de referencia (ref_chain), manteniendo la numeracion de residuos de la ref_chain 
+    
+    INPUT:
+    lines: lineas del pdb ya abierto (open_pdb())
+    ref_chain: cadena de referencia (str)
+    merging_chains: cadenas a mergear (list(str))
+
+    OUTPUT:
+    new_lines: nuevas lineas (list(str)) con las cadenas mergeadas
+    '''
+
+    # Eliminar líneas TER
+    lines = [line for line in lines if not line.startswith("TER")]
+
+    # Filtrar líneas de átomos
+    atom_lines = [line for line in lines if line.startswith(("ATOM", "HETATM"))]
+
+    # Agrupar átomos por cadena y por número de residuo
+    chain_residues = {}
+    for line in atom_lines:
+        parsed = parse_pdb_line(line)
+        chain_id = parsed["chain_id"]
+        res_num = parsed["residue_number"]
+        chain_residues.setdefault(chain_id, {})
+        chain_residues[chain_id].setdefault(res_num, []).append(parsed)
+
+    # Ordenar residuos de la cadena de referencia
+    ref_residues = sorted(chain_residues.get(ref_chain, {}).items())
+    ref_residue_numbers = [res_num for res_num, _ in ref_residues]
+    max_res_seq = max(ref_residue_numbers) if ref_residue_numbers else 0
+
+    serial_counter = 1
+    new_lines = []
+
+    # Escribir ref_chain tal cual
+    for res_num, atoms in ref_residues:
+        for atom in atoms:
+            atom_line = {
+                'record': atom['record'],
+                'serial': serial_counter,
+                'name': atom['atom_name'],
+                'altLoc': '',
+                'resName': atom['residue_name'],
+                'chainID': ref_chain,
+                'resSeq': res_num,
+                'x': atom['x'],
+                'y': atom['y'],
+                'z': atom['z'],
+                'occupancy': atom['occupancy'],
+                'tempFactor': atom['temp_factor'],
+                'element': atom['element']
+            }
+            new_lines.append(unparse_pdb_line(atom_line))
+            serial_counter += 1
+
+    # Agregar residuos de merging_chains renumerados
+    current_res_seq = max_res_seq + 1
+    for chain in merging_chains:
+        residues = sorted(chain_residues.get(chain, {}).items())
+        for _, atoms in residues:
+            for atom in atoms:
+                atom_line = {
+                    'record': atom['record'],
+                    'serial': serial_counter,
+                    'name': atom['atom_name'],
+                    'altLoc': '',
+                    'resName': atom['residue_name'],
+                    'chainID': ref_chain,
+                    'resSeq': current_res_seq,
+                    'x': atom['x'],
+                    'y': atom['y'],
+                    'z': atom['z'],
+                    'occupancy': atom['occupancy'],
+                    'tempFactor': atom['temp_factor'],
+                    'element': atom['element']
+                }
+                new_lines.append(unparse_pdb_line(atom_line))
+                serial_counter += 1
+            current_res_seq += 1  # avanzar al siguiente residuo
+
+    # Agregar línea TER final con la info del último átomo
+    last_atom_line = atom_line  # el último atom_line que se generó en el loop anterior
+    ter_line = (
+        f"TER   {serial_counter:>5}      "
+        f"{last_atom_line['resName']:>3} "
+        f"{last_atom_line['chainID']:>1}"
+        f"{last_atom_line['resSeq']:>4}"
+        "\n"
+    )
+    new_lines.append(ter_line)
+
+    return new_lines
+
+
 # Reindexar las posiciones de cada cadena para que cada una empiece desde el 1 (o el start_index que se pase como input)
 def reindex_chains(lines, start_index=1):
     new_lines, chain_map = [], {}
@@ -247,24 +344,24 @@ def merge_structures(structures):
     return merged_structure
 
 # Convertir .pdb a .cif
-def pdb_to_cif(input_pdb, outdir=None):
+def pdb_to_cif(input_pdb, outdir=None, show_print=True):
     outfile = input_pdb.replace(".pdb", ".cif")
     if not outdir is None: outfile = os.path.join(outdir, os.path.basename(outfile))
     structure = get_structure(input_pdb)
     io = MMCIFIO()
     io.set_structure(structure)
     io.save(outfile)
-    print(f"PDB succesfully converted to CIF at {outfile}")
+    if show_print: print(f"PDB succesfully converted to CIF at {outfile}")
 
 # Convertir de .cif a .pdb
-def cif_to_pdb(input_cif, outdir=None):
+def cif_to_pdb(input_cif, outdir=None, show_print=True):
     outfile = input_cif.replace(".cif", ".pdb")
     if not outdir is None: outfile = os.path.join(outdir, os.path.basename(outfile))
     structure = get_structure(input_cif, format="cif")
     io = PDBIO()
     io.set_structure(structure)
     io.save(outfile)
-    print(f"CIF successfully converted to PDB at {outfile}")
+    if show_print: print(f"CIF successfully converted to PDB at {outfile}")
 
 ####################################################################################### PARSING PDBS ##################################################################################################
 

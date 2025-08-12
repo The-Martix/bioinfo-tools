@@ -10,7 +10,7 @@ dna_nucleotides = ["A", "T", "C", "U"]
 rna_nucleotides = ["A", "U", "C", "G"]
 
 # Esta funcion chequea que un archivo fasta sea valido (hay que indicar los tipos de seq del fasta en la variable 'seq_type' i.ie "protein", "dna", "rna")
-def check_fasta(fasta_file, seq_type="protein"):
+def check_fasta(fasta_file, seq_type="protein", allow_gaps=False):
     """
     Verifica si un archivo FASTA contiene secuencias de aminoácidos o nucleótidos válidas.
     
@@ -27,6 +27,7 @@ def check_fasta(fasta_file, seq_type="protein"):
             if not line.startswith(">"):  # Ignorar líneas de encabezado
                 for char in line.strip():
                     if char not in valid_nucleotides:
+                        if char == "-" and allow_gaps: continue
                         return False, f"Invalid character '{char}' found in sequence '{line.strip()}' at line {i}. Expected characters: {valid_nucleotides}"
     return True, ""
 
@@ -61,8 +62,8 @@ def fix_fasta(fasta_file, seq_type="protein", outfile=None):
     print(f"FASTA file fixed at {outfile}")
 
 # Extraer seq de un fasta
-def open_fasta(fasta_file, seq_type="protein"):
-    check, msg = check_fasta(fasta_file, seq_type)
+def open_fasta(fasta_file, seq_type="protein", allow_gaps=False):
+    check, msg = check_fasta(fasta_file, seq_type, allow_gaps=allow_gaps)
     if not check: raise ValueError(f"Invalid Fasta file. {msg}")
     seqs = {}
     file = open(fasta_file, "r")
@@ -107,7 +108,7 @@ def mafft_MSA(fasta_file, outfile):
 
 # Obtener residuos que alinean (i.e. matchean) en un MSA. add_pos agrega la posicion del residuo alineado. red_id es la seq que usa como referencia del MSA
 def get_aligned_residues(msa_file, add_pos=True, ref_id=0):
-    seqs_dict = open_fasta(msa_file)
+    seqs_dict = open_fasta(msa_file, allow_gaps=True)
     aligned_residues = []
     seqs = list(seqs_dict.values())
     for i in range(len(seqs[ref_id])):
@@ -119,4 +120,28 @@ def get_aligned_residues(msa_file, add_pos=True, ref_id=0):
             pos = i + 1 - seqs[ref_id][:i].count("-")
             aligned_residues[-1] += f"{pos}"
     return aligned_residues
+
+# Encuentra el residuo alineado para un un dado residuo de referencia
+def find_aligned_residue(ref_seq, alt_seq, residue_number):
+    """
+    Encuentra con qué aminoácido/gap de la secuencia alternativa se alinea un residuo dado de la referencia.
+    
+    Parameters:
+    - ref_seq (str): secuencia de referencia con gaps
+    - alt_seq (str): secuencia alternativa con gaps (alineada a la referencia)
+    - residue_number (int): número de residuo en la referencia (sin contar gaps)
+    
+    Returns:
+    - tuple: (residuo_referencia, residuo_alternativa, posicion_alineada)
+    """
+    assert len(ref_seq) == len(alt_seq), "Las secuencias deben tener la misma longitud"
+    
+    count = 0  # contador de residuos sin gap en referencia
+    for i, res in enumerate(ref_seq):
+        if res != "-":
+            count += 1
+            if count == residue_number:
+                return res, alt_seq[i], i+1  # residuo ref, residuo alt, posición en alineamiento
+    
+    return None  # si no se encuentra
 
