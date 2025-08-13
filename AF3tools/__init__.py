@@ -1,29 +1,40 @@
-# Script para parsear corridas de RoseTTAFold-All-Atom.
-# Lee archivos PDB generados por el modelo, extrae información de cadenas, residuos y átomos,
-# normaliza nombres de residuos según un mapeo definido, asigna identificadores únicos a átomos repetidos
-# y calcula el plddt medio por residuo a partir de los valores de B-factor.
+# This script parse AlphaFold3 (AF3) runs and its metrics. By Franco Salvatore, 2025
 
 import os
 import structools
 import numpy as np
+import json
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from collections import defaultdict
 import math
 
-class Run:
-    def __init__(self, _id):
-        self.id = _id
-        self.chains = []
-        self.pdb_path = None
+def load_json(file):
+    f = open(file, "r")
+    data = json.load(f)
+    f.close()
+    return data
 
-    def parse_structure(self, pdb_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}):
+class Run:
+    def __init__(self, pdb_path, _id, model):
+        self.pdb_path = pdb_path
+        self.id = _id
+        self.model = model
+        self.chains = []
+        self.confidences_path = self.pdb_path.replace(f"model_{model}.pdb", f"summary_confidences_{model}.json")
+        self.get_confidences()
+
+    def get_confidences(self):
+        self.conf_data = load_json(self.confidences_path)
+        self.iptm = self.conf_data['iptm']
+        self.pTM = self.conf_data['ptm']
+
+    def parse_structure(self, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}):
         """
         Parseo usando structools.open_pdb y structools.parse_pdb_line.
         Se evita Bio.PDB para no colapsar HETATM con nombres repetidos.
         """
-        self.pdb_path = pdb_path
-        lines = structools.open_pdb(pdb_path)
+        lines = structools.open_pdb(self.pdb_path)
 
         # Mapa rápido para no duplicar objetos
         chains_map = {}  # chain_id -> Chain
@@ -118,11 +129,20 @@ class Atom:
         self.id = atomid
         self.plddt = plddt
 
-def parse_run(pdb_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}):
-    run = Run(os.path.splitext(os.path.basename(pdb_path))[0])
-    run.parse_structure(pdb_path, correct_resname=correct_resname)
+# Parse run
+def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}, model=0):
+    cif_file = [f for f in os.listdir(folder_path) if f"model_{model}.cif" in f][0]
+    cif_path = os.path.join(folder_path, cif_file)
+
+    # Generate pdb files from cif files
+    pdb_path = cif_path.replace(".cif", ".pdb")
+    structools.cif_to_pdb(cif_path, show_print=False)
+
+    run = Run(pdb_path, os.path.splitext(os.path.basename(pdb_path))[0], model)
+    run.parse_structure(correct_resname=correct_resname)
     return run
 
+# Plot plDDT
 def plot_plddt(run,
               level="atom",                 # "atom" | "residue" | "chain"
               color_by_chain=True,          # sólo aplica cuando level="atom"
@@ -287,7 +307,7 @@ def plot_plddt(run,
     else:
         raise ValueError("level must be 'atom', 'residue' o 'chain'.")
 
-    ax.set_ylim(bottom=0, top=1.05)
+    ax.set_ylim(bottom=0, top=105)
     ax.grid(True, axis="y", linestyle=":", linewidth=0.6, alpha=0.6)
     fig.tight_layout()
 
@@ -295,7 +315,3 @@ def plot_plddt(run,
         plt.show()
 
     return fig, ax
-
-
-# Ejemplo de uso
-# run = parse_run("path/a/pdb")

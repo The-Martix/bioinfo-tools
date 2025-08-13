@@ -33,12 +33,13 @@ def open_pdb(pdb_file):
         lines = file.readlines()
     return lines
 
-# Obtener los campos de una linea de ATOM o HETATOM de PDB
+# Obtener los campos de una linea de ATOM o HETATM de PDB
 def parse_pdb_line(line):
     return {
         "record": line[0:6].strip(),
         "atom_number": int(line[6:11]),
         "atom_name": line[12:16].strip(),
+        "alt_loc": line[16].strip() or "",
         "residue_name": line[17:20].strip(),
         "chain_id": line[21],
         "residue_number": int(line[22:26]),
@@ -53,21 +54,21 @@ def parse_pdb_line(line):
 # Volver a reconstruir la linea del PDB parseada
 def unparse_pdb_line(atom_dict):
     return (
-        f"{atom_dict['record']:<6}"              # Record name (ATOM/HETATM)
-        f"{int(atom_dict['serial']):>5} "         # Atom serial number
-        f"{atom_dict['name']:>4}"                 # Atom name
-        f"{atom_dict['altLoc'] or ' ':1}"         # Alternate location indicator
-        f"{atom_dict['resName']:<3} "             # Residue name
-        f"{atom_dict['chainID']:>1}"              # Chain ID
-        f"{int(atom_dict['resSeq']):>4}"          # Residue sequence number
-        f"    "                                   # 4 spaces (insertion code unused)
-        f"{float(atom_dict['x']):>8.3f}"          # X
-        f"{float(atom_dict['y']):>8.3f}"          # Y
-        f"{float(atom_dict['z']):>8.3f}"          # Z
-        f"{float(atom_dict['occupancy']):>6.2f}"  # Occupancy
-        f"{float(atom_dict['tempFactor']):>6.2f}" # Temp factor
-        f"          {atom_dict['element']:>2}"    # Element
-        f"\n"
+        f"{atom_dict['record']:<6}"                        # 1-6  Record name
+        f"{atom_dict['atom_number']:>5}"                   # 7-11 Atom serial
+        f" {atom_dict['atom_name']:<4}"                     # 13-16 Atom name (left-aligned)
+        f"{atom_dict.get('alt_loc', ' '):1}"                 # 17   Alternate location
+        f"{atom_dict['residue_name']:>3} "                  # 18-20 Residue name
+        f"{atom_dict['chain_id']:1}"                        # 22   Chain ID
+        f"{atom_dict['residue_number']:>4}"                 # 23-26 Residue seq number
+        f"    "                                             # 27   Insertion code (unused)
+        f"{atom_dict['x']:>8.3f}"                           # 31-38 X
+        f"{atom_dict['y']:>8.3f}"                           # 39-46 Y
+        f"{atom_dict['z']:>8.3f}"                           # 47-54 Z
+        f"{atom_dict['occupancy']:>6.2f}"                   # 55-60 Occupancy
+        f"{atom_dict['temp_factor']:>6.2f}"                 # 61-66 Temp factor
+        f"          {atom_dict['element']:>2}"              # 77-78 Element
+        "\n"
     )
 
 # Escribir archivo pdb
@@ -181,17 +182,18 @@ def filter_chains(lines, accepted_chains=[]):
     return new_lines
 
 # Mergear cadenas
-def merge_chains(lines, ref_chain:str, merging_chains:list):
+def merge_chains(lines, ref_chain: str, merging_chains: list):
     ''' 
-    Mergear cadenas (merging_chains) de un PDB a la cadena de referencia (ref_chain), manteniendo la numeracion de residuos de la ref_chain 
-    
+    Mergear cadenas (merging_chains) de un PDB a la cadena de referencia (ref_chain),
+    manteniendo la numeración de residuos de la ref_chain.
+
     INPUT:
-    lines: lineas del pdb ya abierto (open_pdb())
-    ref_chain: cadena de referencia (str)
-    merging_chains: cadenas a mergear (list(str))
+        lines: líneas del PDB ya abiertas (lista de strings, por ej. open_pdb())
+        ref_chain: cadena de referencia (str)
+        merging_chains: cadenas a mergear (list(str))
 
     OUTPUT:
-    new_lines: nuevas lineas (list(str)) con las cadenas mergeadas
+        new_lines: nuevas líneas (list(str)) con las cadenas mergeadas
     '''
 
     # Eliminar líneas TER
@@ -217,65 +219,41 @@ def merge_chains(lines, ref_chain:str, merging_chains:list):
     serial_counter = 1
     new_lines = []
 
-    # Escribir ref_chain tal cual
+    # Escribir ref_chain tal cual (respetando su numeración original)
     for res_num, atoms in ref_residues:
         for atom in atoms:
-            atom_line = {
-                'record': atom['record'],
-                'serial': serial_counter,
-                'name': atom['atom_name'],
-                'altLoc': '',
-                'resName': atom['residue_name'],
-                'chainID': ref_chain,
-                'resSeq': res_num,
-                'x': atom['x'],
-                'y': atom['y'],
-                'z': atom['z'],
-                'occupancy': atom['occupancy'],
-                'tempFactor': atom['temp_factor'],
-                'element': atom['element']
-            }
-            new_lines.append(unparse_pdb_line(atom_line))
+            atom_dict = atom.copy()
+            atom_dict["atom_number"] = serial_counter
+            atom_dict["chain_id"] = ref_chain
+            new_lines.append(unparse_pdb_line(atom_dict))
             serial_counter += 1
 
-    # Agregar residuos de merging_chains renumerados
+    # Agregar residuos de merging_chains renumerados a continuación
     current_res_seq = max_res_seq + 1
     for chain in merging_chains:
         residues = sorted(chain_residues.get(chain, {}).items())
         for _, atoms in residues:
             for atom in atoms:
-                atom_line = {
-                    'record': atom['record'],
-                    'serial': serial_counter,
-                    'name': atom['atom_name'],
-                    'altLoc': '',
-                    'resName': atom['residue_name'],
-                    'chainID': ref_chain,
-                    'resSeq': current_res_seq,
-                    'x': atom['x'],
-                    'y': atom['y'],
-                    'z': atom['z'],
-                    'occupancy': atom['occupancy'],
-                    'tempFactor': atom['temp_factor'],
-                    'element': atom['element']
-                }
-                new_lines.append(unparse_pdb_line(atom_line))
+                atom_dict = atom.copy()
+                atom_dict["atom_number"] = serial_counter
+                atom_dict["chain_id"] = ref_chain
+                atom_dict["residue_number"] = current_res_seq
+                new_lines.append(unparse_pdb_line(atom_dict))
                 serial_counter += 1
             current_res_seq += 1  # avanzar al siguiente residuo
 
     # Agregar línea TER final con la info del último átomo
-    last_atom_line = atom_line  # el último atom_line que se generó en el loop anterior
-    ter_line = (
-        f"TER   {serial_counter:>5}      "
-        f"{last_atom_line['resName']:>3} "
-        f"{last_atom_line['chainID']:>1}"
-        f"{last_atom_line['resSeq']:>4}"
-        "\n"
-    )
-    new_lines.append(ter_line)
+    if new_lines:
+        last_atom = parse_pdb_line(new_lines[-1])
+        ter_line = (
+            f"TER   {serial_counter:>5}      "
+            f"{last_atom['residue_name']:>3} "
+            f"{last_atom['chain_id']:>1}"
+            f"{last_atom['residue_number']:>4}\n"
+        )
+        new_lines.append(ter_line)
 
     return new_lines
-
 
 # Reindexar las posiciones de cada cadena para que cada una empiece desde el 1 (o el start_index que se pase como input)
 def reindex_chains(lines, start_index=1):

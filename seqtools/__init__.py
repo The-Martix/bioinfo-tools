@@ -1,6 +1,7 @@
 # Este script es para realizar procesos relacionados con secuencias (e.g. fasta) como por ej alineamientos, etc
 
 import os
+import requests
 
 # Lista de aminoacidos
 amino_acids = ["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V", "X"]
@@ -144,4 +145,3 @@ def find_aligned_residue(ref_seq, alt_seq, residue_number):
                 return res, alt_seq[i], i+1  # residuo ref, residuo alt, posición en alineamiento
     
     return None  # si no se encuentra
-
