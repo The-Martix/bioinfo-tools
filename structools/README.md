@@ -1,142 +1,128 @@
-# Structools - Herramientas para Parsing, Análisis y Edición de Archivos PDB
+# structools
 
-**Structools** es una colección de funciones para facilitar el análisis estructural de proteínas en formato PDB.  
-Permite extraer residuos, medir distancias, alinear estructuras, identificar sitios activos e interfaces,  
-así como editar directamente archivos PDB para modificar, filtrar o reescribir estructuras.
+`structools` es una biblioteca Python para el análisis, manipulación y clasificación de estructuras proteicas. Utiliza y extiende Biopython para ofrecer herramientas avanzadas en el tratamiento de archivos `.pdb` y `.cif`, integrando una arquitectura basada en programación orientada a objetos (OOP).
 
 ---
 
-## 🧰 Requisitos
+## Características Principales
 
-- Python >= 3.x  
-- Biopython  
-- NumPy  
-- ResidueDepth de Biopython (MSMS)  
-- [`aminotools`](https://github.com/SalvaFran/bioinfo-tools/blob/main/aminotools) (ya sea en el `PATH` o en la misma carpeta)
+- **Generador de Estructuras OOP**
+  - Lectura y parsing de archivos `.pdb` en una jerarquía clara: `Structure > Chain > Residue > Atom`.
+  - Cada nivel posee propiedades bioquímicas (masa, centro de masa, etc.) y permite manipulaciones locales y globales.
 
-**Instalación de dependencias:**
+- **Edición y Procesamiento de Estructuras**
+  - Fusión y división de cadenas.
+  - Renombrado de ligandos y remoción de componentes (agua, HETATM, hidrógenos, etc).
+  - Escritura a formatos `.pdb` o `.cif`.
 
+- **Módulos de Clasificación Funcional**
+  - `active_site`: identifica residuos cercanos a ligandos.
+  - `interface`: detecta contactos inter-cadenas.
+  - `surface`: clasifica residuos en la superficie mediante "residue depth".
+
+**Nota:** Para estas funciones (`active_site`, `interface`, `surface`), la estructura de entrada debe estar generada mediante `PDBParser`.
+
+- **Herramientas Analíticas**
+  - Cálculo de distancias, RMSD, alineamientos estructurales.
+  - Contactos hidrofóbicos, aromáticos y puentes de hidrógeno.
+
+---
+
+## Estructura OOP
+
+La arquitectura OOP permite una representación jerárquica precisa:
+
+### `Structure`
+- Contiene múltiples `Chain`.
+- Métodos:
+  - `add_chain(chain)`: añade una cadena.
+  - `merge_chains(chain_ids, new_chain_id, renumber)`: fusiona cadenas.
+  - `split_chain(chain_id, residue_id_groups, ...)`: divide una cadena.
+  - `rename_hetatoms(dict)`, `remove_waters()`, `remove_hydrogens()`, `remove_hetatoms()`, `remove_peptides()`: limpieza estructural.
+  - `write_pdb(path)`: exporta archivo `.pdb`.
+
+### `Chain`
+- Contiene una lista de `Residue`.
+- Propiedades:
+  - `mass`, `center_of_mass`.
+
+### `Residue`
+- Contiene una lista de `Atom`.
+- Propiedades:
+  - `mass`, `center_of_mass`.
+
+### `Atom`
+- Posee propiedades como coordenadas, tipo de elemento, ocupancia, etc.
+- Propiedad: `mass`.
+
+Ejemplo de creación:
+```python
+from structools import get_structure
+structure = get_structure("example.pdb", src="OOP")
+print(structure.mass)
+```
+
+---
+
+## Métodos Generales
+
+- `get_structure(path, format="pdb", src="OOP"|"PDBParser")`: retorna una estructura.
+- `generate_structure(data, id)`: genera estructura OOP desde diccionario.
+- `pdb_to_cif(path)`, `cif_to_pdb(path)`: conversiones entre formatos.
+- `write_structure_to_pdb(structure, path)`: guarda estructura.
+- `align_structures(mobile, ref_atoms, mobile_atoms)`: alinea dos estructuras.
+- `calculate_rmsd(coords1, coords2)`, `kabsch_rmsd(P, Q)`: cálculo de RMSD.
+- `get_residues`, `get_non_residues`, `get_atoms`, `get_CA`: funciones auxiliares de extracción.
+
+---
+
+## Ejemplos de Uso
+
+### Identificación de Sitio Activo (via `PDBParser`)
+```python
+from structools import get_structure, get_active_site
+structure = get_structure("example.pdb", src="PDBParser")
+active = get_active_site(structure, ligands_names=["ATP"])
+```
+
+### Residuo de Interfaz (via `PDBParser`)
+```python
+from structools import get_interface
+interface = get_interface(structure)
+```
+
+### Residuos en Superficie (via `PDBParser`)
+```python
+from structools import get_surface
+surface = get_surface(structure)
+```
+
+---
+
+## Instalación
 ```bash
-pip install biopython numpy
+pip install biopython
+# Agregar structools al PYTHONPATH o empaquetar como módulo
 ```
 
 ---
 
-## 🔍 ¿Qué se puede hacer con Structools?
-
-- Leer estructuras PDB.
-- Extraer residuos, heteroátomos, átomos específicos o coordenadas.
-- Calcular distancias entre residuos.
-- Calcular RMSD entre estructuras (con y sin alineamiento previo).
-- Alinear estructuras completas.
-- Obtener residuos cercanos a un ligando o de la interfaz entre cadenas.
-- Detectar residuos en la superficie (requiere `ResidueDepth`).
-- Editar archivos PDB: remover aguas, combinar estructuras, escribir nuevos PDB.
+## Dependencias
+- [Biopython](https://biopython.org/)
+- NumPy
+- SciPy
 
 ---
 
-## 🧪 Ejemplos de uso
-
-### Importación
-
-```python
-from structools import *
-
-structure = get_structure("1abc.pdb")
-```
-
-### Parsing: Obtener residuos del sitio activo
-
-```python
-# Obtener residuos a 6 Å del ligando HEM
-site = get_active_site(structure, ligands_names=["HEM"], threshold=6)
-print(site)
-```
-
-### Parsing: Calcular RMSD entre dos estructuras
-
-```python
-structure1 = get_structure("wt.pdb")
-structure2 = get_structure("mut.pdb")
-
-ca1 = get_CA(structure1)
-ca2 = get_CA(structure2)
-
-coords1 = get_coords(ca1)
-coords2 = get_coords(ca2)
-
-rmsd = calculate_rmsd(coords1, coords2)
-print("RMSD sin alinear:", rmsd)
-```
-
-### Parsing: Alinear dos estructuras y calcular RMSD
-
-```python
-aligned = align_structures(structure2, ca1, ca2)
-
-ca2_aligned = get_CA(aligned)
-coords2_aligned = get_coords(ca2_aligned)
-
-rmsd_aligned = calculate_rmsd(coords1, coords2_aligned)
-print("RMSD alineado:", rmsd_aligned)
-```
-
-### Edición: Remover aguas y guardar un nuevo PDB
-
-```python
-lines = read_pdb("1abc.pdb")
-clean_lines = remove_water(lines)
-write_pdb("1abc_no_water.pdb", clean_lines)
-```
-
-### Edición: Combinar dos estructuras en un mismo PDB
-
-```python
-lines1 = read_pdb("receptor.pdb")
-lines2 = read_pdb("ligando.pdb")
-
-merged_lines = merge_pdbs(lines1, lines2)
-write_pdb("complejo.pdb", merged_lines)
-```
+## Licencia
+MIT
 
 ---
 
-## 🧩 Funciones disponibles
-
-```python
-get_structure(path, format='pdb')
-cif_to_pdb(cif_file)
-pdb_to_cif(pdb_file)
-get_sequence(structure)
-get_residues(structure)
-get_non_residues(structure)
-get_CA(structure)
-get_atoms(structure, ids=[], include_hetatoms=False)
-get_coords(atoms)
-calculate_rmsd(coords1, coords2)
-kabsch_rmsd(P, Q)
-align_structures(mobile_structure, ref_atoms, mobile_atoms)
-get_active_site(structure, ligands_names, threshold)
-get_neighbors(structure, target_residues, threshold)
-get_interface(structure, threshold)
-get_surface(structure)
-read_pdb(path)
-get_ligand_atoms(lines)
-rename_hetatom(lines)
-update_ligand_line(line)
-merge_ligand_to_pdb(line)
-write_pdb(path, lines)
-write_structure_to_pdb(structure)
-filter_hetatoms(lines)
-filter_chains(lines)
-remove_water(lines)
-reindex_chains(lines)
-```
+## Autor
+Desarrollado por [Tu Nombre] para aplicaciones de bioinformática estructural.
 
 ---
 
-## 📄 Autor y licencia
-
-**Autor:** Franco Salvatore  
-**Licencia:** Libre uso con atribución
-"""
+## Notas Finales
+Este paquete está diseñado para usuarios avanzados que requieren herramientas especializadas en análisis estructural. Es especialmente útil para clasificación de ligandos, detección de sitios funcionales y modelado molecular.
