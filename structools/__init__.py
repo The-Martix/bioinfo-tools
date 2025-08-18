@@ -343,15 +343,310 @@ def cif_to_pdb(input_cif, outdir=None, show_print=True):
 
 ####################################################################################### PARSING PDBS ##################################################################################################
 
+ATOMIC_MASS_DA = {
+    "H": 1.008, "C": 12.011, "N": 14.007, "O": 15.999,
+    "S": 32.06, "P": 30.974,
+    "F": 18.998, "I": 126.90, "B": 10.81,
+    "K": 39.098, "NA": 22.990, "CA": 40.078,
+    "FE": 55.845, "ZN": 65.38, "MG": 24.305,
+    "CL": 35.45, "BR": 79.904,
+}
+
+def _atomic_mass(atom):
+    el = (atom.element or "").upper()
+    return ATOMIC_MASS_DA.get(el, 12.011)
+
 # OOP src to parse structures
 class Structure:
-    def __init__(self, _id):
-        self._id = id
+    def __init__(self, data, _id):
+        self.data = data
+        self.id = _id
         self.chains = []
 
     def add_chain(self, chain):
         self.chains.append(chain)
         chain.parent = self
+
+    @property
+    def mass(self) -> float:
+        """Structure mass (Da)."""
+        return sum(ch.mass for ch in self.chains)
+
+    @property
+    def center_of_mass(self):
+        """Structure COM as np.ndarray(3,)."""
+        atoms = [a for ch in self.chains for r in ch.residues for a in r.atoms]
+        if not atoms:
+            return np.zeros(3)
+        masses = np.array([a.mass for a in atoms])
+        coords = np.array([a.coords for a in atoms], dtype=float)
+        M = masses.sum()
+        return coords.mean(axis=0) if M == 0 else (masses[:, None] * coords).sum(axis=0) / M
+
+    def write_pdb(self, pdb_path, chains=None, records=None):
+        chains = set(chains) if chains is not None else {c.id for c in self.chains}
+        records = set(records) if records is not None else {"ATOM", "HETATM"}
+        header = f"HEADER    {self.id}\n"
+        lines = [header]
+        for chain in self.chains:
+            if chain.id in chains:
+                for res in chain.residues:
+                    if res.atoms_record in records:
+                        for atom in res.atoms:
+                            data = {
+                                'record' : atom.record,
+                                'atom_number' : atom.pdb_id,
+                                'atom_name' : atom.name,
+                                'alt_loc' : '',
+                                'residue_name' : res.name,
+                                'chain_id' : chain.id,
+                                'residue_number' : res.pdb_id,
+                                'x' : atom.coords[0],
+                                'y' : atom.coords[1],
+                                'z' : atom.coords[2],
+                                'occupancy' : atom.occupancy,
+                                'temp_factor' : atom.bfactor,
+                                'element' : atom.element
+                            }
+                            lines.append(structools.unparse_pdb_line(data))
+        file = open(pdb_path, "w")
+        for line in lines: file.write(line)
+        file.close()
+
+    def rename_hetatoms(self, data):
+        '''
+        data (dict): the dictionary of names needed to be changed. e.g. {"UNL" : "HEM", "UNK" : "EST"}
+        '''
+        for chain in self.chains:
+            for res in chain.residues:    
+                if res.name in list(data.keys()):
+                    res.name = data[res.name]
+                    if res.atoms_record != "HETATM":
+                        res.atoms_record = "HETATM"
+                        for atom in res.atoms:
+                            atom.record = "HETATM"  # Define as hetatom just in case
+
+    # --- helpers internos ---
+    def _get_chain_by_id(self, chain_id):
+        for ch in self.chains:
+            if ch.id == chain_id:
+                return ch
+        raise ValueError(f"Chain '{chain_id}' not found.")
+
+    def _unique_chain_id(self, base_id):
+        """Devuelve un id de cadena único, agregando sufijos _2,_3,... si hace falta."""
+        existing = {c.id for c in self.chains}
+        if base_id not in existing:
+            return base_id
+        i = 2
+        while f"{base_id}_{i}" in existing:
+            i += 1
+        return f"{base_id}_{i}"
+
+    # --- merge ---
+    def merge_chains(self, chain_ids, new_chain_id=None, renumber=True):
+        """
+        Merge given chains into one chain.
+
+        Parameters
+        ----------
+        chain_ids : iterable[str]
+            IDs de cadenas a mergear (deben existir). El orden de merge respeta
+            el orden actual en self.chains.
+        new_chain_id : str or None
+            ID de la nueva cadena. Si None, usa el id de la primera cadena de chain_ids.
+        renumber : bool
+            Si True, reasigna residue.id a 1..N en la cadena resultante (pdb_id se preserva).
+        """
+        if not chain_ids:
+            return
+
+        # ordenar seleccionadas según el orden actual del Structure
+        order = {c.id: i for i, c in enumerate(self.chains)}
+        selected = sorted([self._get_chain_by_id(cid) for cid in chain_ids],
+                          key=lambda c: order[c.id])
+
+        # id nuevo
+        default_id = selected[0].id
+        new_id = new_chain_id or default_id
+        # permitir reutilizar el id si pertenece a las seleccionadas; si no, debe ser único
+        if new_id not in {c.id for c in selected}:
+            new_id = self._unique_chain_id(new_id)
+
+        # posición para insertar la nueva cadena (donde estaba la primera)
+        insert_pos = order[selected[0].id]
+
+        # construir cadena mergeada
+        merged = Chain(new_id)
+        for ch in selected:
+            for res in ch.residues:
+                merged.add_residue(res)  # mueve el objeto; actualiza parent en add_residue
+
+        if renumber:
+            for i, res in enumerate(merged.residues, 1):
+                res.id = i  # solo id interno; pdb_id intacto
+
+        # reemplazar en self.chains: quitar seleccionadas y poner la nueva
+        keep = [c for c in self.chains if c.id not in chain_ids]
+        keep.insert(insert_pos, merged)
+        self.chains = keep
+
+    # --- split ---
+    def split_chain(self, chain_id, residue_id_groups, new_chain_ids=None, renumber=True):
+        """
+        Split one chain into multiple chains by groups of residue.id.
+
+        Parameters
+        ----------
+        chain_id : str
+            Cadena a dividir.
+        residue_id_groups : list[iterable[int]]
+            Cada elemento es un conjunto/lista de residue.id que formará una nueva cadena.
+        new_chain_ids : list[str] or None
+            IDs para las nuevas cadenas (misma longitud que residue_id_groups).
+            Si None, se generan a partir de chain_id (p.ej., A_1, A_2, ...).
+        renumber : bool
+            Si True, reasigna residue.id 1..N en cada nueva cadena (pdb_id se preserva).
+        """
+        if not residue_id_groups:
+            return []
+
+        chain = self._get_chain_by_id(chain_id)
+        original_index = self.chains.index(chain)
+
+        # mapa residue.id -> Residue (chequeo)
+        id2res = {}
+        for res in chain.residues:
+            if res.id in id2res:
+                raise ValueError(f"Duplicate residue.id {res.id} in chain '{chain_id}'.")
+            id2res[res.id] = res
+
+        # preparar ids para nuevas cadenas
+        if new_chain_ids is None:
+            new_chain_ids = []
+            for i in range(1, len(residue_id_groups) + 1):
+                new_chain_ids.append(f"{chain_id}_{i}")
+        if len(new_chain_ids) != len(residue_id_groups):
+            raise ValueError("new_chain_ids length must match residue_id_groups length.")
+
+        # asegurar unicidad de ids (excepto si reutilizamos el original y lo vamos a eliminar)
+        reserved = {c.id for c in self.chains if c is not chain}
+        final_ids = []
+        for cid in new_chain_ids:
+            if cid in reserved:
+                cid = self._unique_chain_id(cid)
+            final_ids.append(cid)
+
+        # construir nuevas cadenas
+        new_chains = []
+        for cid, group in zip(final_ids, residue_id_groups):
+            group_ids = list(group)
+            # mantener orden relativo de aparición en la cadena original
+            group_ids.sort(key=lambda rid: chain.residues.index(id2res[rid]))
+            new_ch = Chain(cid)
+            for rid in group_ids:
+                if rid not in id2res:
+                    raise ValueError(f"Residue.id {rid} not found in chain '{chain_id}'.")
+                new_ch.add_residue(id2res[rid])
+            if renumber:
+                for i, res in enumerate(new_ch.residues, 1):
+                    res.id = i
+            new_chains.append(new_ch)
+
+        # actualizar self.chains: reemplazar chain por las nuevas (en su posición)
+        self.chains.pop(original_index)
+        for offset, nc in enumerate(new_chains):
+            self.chains.insert(original_index + offset, nc)
+
+    def _drop_empty_chains(self):
+        """Quita cadenas sin residuos."""
+        self.chains = [ch for ch in self.chains if ch.residues]
+
+    @staticmethod
+    def _is_het_residue(res):
+        """True si el residuo es HETATM (seguro ante mezclas/normalizaciones)."""
+        if res.atoms_record in ("HETATM", "HETATOM"):
+            return True
+        # fallback por átomos
+        return bool(res.atoms) and all(
+            (a.record == "HETATM" or a.record == "HETATOM") for a in res.atoms
+        )
+
+    @staticmethod
+    def _refresh_atoms_record(res):
+        """Reasigna res.atoms_record según el primer átomo (o None si vacío)."""
+        res.atoms_record = (res.atoms[0].record if res.atoms else None)
+
+    # --- 1) Remover aguas (por resname) ---
+    def remove_waters(self, water_names=None):
+        """
+        Elimina residuos de agua en toda la estructura (in-place).
+        water_names: iterable[str] con nombres de residuo a tratar como agua (case-insensitive).
+                     Por defecto: {"HOH","WAT","H2O","DOD","TIP3","SOL"}
+        """
+        wset = set(n.upper() for n in (water_names or {"HOH","WAT","H2O","DOD","TIP3","SOL"}))
+        for chain in self.chains:
+            chain.residues = [res for res in chain.residues if res.name.upper() not in wset]
+        self._drop_empty_chains()
+
+    # --- 2) Remover hidrógenos (por átomo) ---
+    def remove_hydrogens(self):
+        """
+        Elimina átomos de hidrógeno en toda la estructura (in-place).
+        Si un residuo queda sin átomos, se elimina el residuo.
+        """
+        for chain in self.chains:
+            new_residues = []
+            for res in chain.residues:
+                # conservar no-H: chequea element y, por seguridad, nombre
+                res.atoms = [
+                    a for a in res.atoms
+                    if (a.element or "").upper() != "H" and not a.name.strip().upper().startswith("H")
+                ]
+                # refrescar record y decidir si mantener el residuo
+                self._refresh_atoms_record(res)
+                if res.atoms:
+                    new_residues.append(res)
+            chain.residues = new_residues
+        self._drop_empty_chains()
+
+    # --- 3) Remover heteroátomos (por residuo) ---
+    def remove_hetatoms(self, names=None):
+        """
+        Elimina residuos HETATM en toda la estructura (in-place).
+        names: iterable[str] opcional con nombres de residuo a eliminar;
+               si es None, elimina **todos** los residuos HETATM (incluye aguas si no las filtraste antes).
+        """
+        nset = None if names is None else set(n.upper() for n in names)
+        for chain in self.chains:
+            new_residues = []
+            for res in chain.residues:
+                is_het = self._is_het_residue(res)
+                match_name = True if nset is None else (res.name.upper() in nset)
+                if is_het and match_name:
+                    continue  # descartar este residuo
+                new_residues.append(res)
+            chain.residues = new_residues
+        self._drop_empty_chains()
+
+    # --- 4) Remover residuos peptidicos
+    def remove_peptides(self, exclude=None):
+        '''
+        Remueve todos los aminoacidos de una estructura, excepto los que esten incluidos en 'exlcude'
+        exclude: iterable[str] (opcional). Nombre (en codigo de 3 letras y mayuscula) de los aminoacidos que no quieras remover
+        '''
+
+        aa_all = {name.upper() for name in residues_names}
+        keep   = {name.upper() for name in (exclude or [])}
+        to_remove = aa_all - keep
+
+        for chain in self.chains:
+            chain.residues = [res for res in chain.residues if res.name.upper() not in to_remove]
+
+        # Quitar cadenas vacías (in-place)
+        self.chains = [ch for ch in self.chains if ch.residues]
+
+        self._drop_empty_chains()
 
 class Chain:
     def __init__(self, _id):
@@ -361,6 +656,22 @@ class Chain:
     def add_residue(self, residue):
         self.residues.append(residue)
         residue.parent = self
+
+    @property
+    def mass(self) -> float:
+        """Total mass in Daltons."""
+        return sum(r.mass for r in self.residues)
+
+    @property
+    def center_of_mass(self):
+        """Center of mass coordinates (x,y,z) as numpy array."""
+        atoms = [a for r in self.residues for a in r.atoms]
+        if not atoms:
+            return np.zeros(3)
+        masses = np.array([_atomic_mass(a) for a in atoms], dtype=float)
+        coords = np.array([a.coords for a in atoms], dtype=float)
+        M = masses.sum()
+        return coords.mean(axis=0) if M == 0 else (masses[:, None] * coords).sum(axis=0) / M
 
 class Residue:
     def __init__(self, _id, name, pdb_id):
@@ -373,7 +684,22 @@ class Residue:
     def add_atom(self, atom):
         self.atoms.append(atom)
         atom.parent = self
-        self.atoms_record == atom.record
+        self.atoms_record = atom.record
+
+    @property
+    def mass(self) -> float:
+        """Total mass in Daltons."""
+        return sum(_atomic_mass(a) for a in self.atoms)
+
+    @property
+    def center_of_mass(self):
+        """Center of mass coordinates (x,y,z) as numpy array."""
+        if not self.atoms:
+            return np.zeros(3)
+        masses = np.array([_atomic_mass(a) for a in self.atoms], dtype=float)
+        coords = np.array([a.coords for a in self.atoms], dtype=float)
+        M = masses.sum()
+        return coords.mean(axis=0) if M == 0 else (masses[:, None] * coords).sum(axis=0) / M
 
 class Atom:
     def __init__(self, _id, name, coords, occupancy, bfactor, pdb_id, record):
@@ -384,6 +710,12 @@ class Atom:
         self.bfactor = bfactor
         self.pdb_id = pdb_id
         self.record = record
+        self.element = name[0]
+
+    @property
+    def mass(self) -> float:
+        """Atomic mass (Da)."""
+        return _atomic_mass(self)
 
 # Get PDB file data dictionary in hierarchical order ({chain {residue {atom}}})
 def get_pdb_data_dict(pdb_path):
@@ -424,7 +756,7 @@ def get_pdb_data_dict(pdb_path):
 
 # Generate OOP structure
 def generate_structure(data, structure_id):
-    structure = Structure(structure_id)
+    structure = Structure(data, structure_id)
     # Add chains
     for chain_id in list(data.keys()):
         chain = Chain(chain_id)
