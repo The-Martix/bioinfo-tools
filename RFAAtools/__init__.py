@@ -75,8 +75,9 @@ class Run:
 
             atom_serial = d["atom_number"]
             plddt = d["temp_factor"]  # B-factor como proxy de plddt o score
+            coords = [d["x"], d["y"], d["z"]]
 
-            residue.add_atom(unique_atom_name, atom_serial, plddt)
+            residue.add_atom(unique_atom_name, atom_serial, plddt, coords)
 
         # calcular promedios al final
         for ch in self.chains:
@@ -103,8 +104,8 @@ class Residue:
         self.atoms = []
         self.mean_plddt = None
 
-    def add_atom(self, atomname, atomid, plddt):
-        self.atoms.append(Atom(atomname, atomid, plddt))
+    def add_atom(self, atomname, atomid, plddt, coords):
+        self.atoms.append(Atom(atomname, atomid, plddt, coords))
 
     def get_mean_plddt(self):
         if self.atoms:
@@ -113,10 +114,11 @@ class Residue:
             self.mean_plddt = float("nan")
 
 class Atom:
-    def __init__(self, atomname, atomid, plddt):
+    def __init__(self, atomname, atomid, plddt, coords):
         self.name = atomname
         self.id = atomid
         self.plddt = plddt
+        self.coords = coords
 
 def parse_run(pdb_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}):
     run = Run(os.path.splitext(os.path.basename(pdb_path))[0])

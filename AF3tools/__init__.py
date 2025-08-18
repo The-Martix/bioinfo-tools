@@ -86,8 +86,9 @@ class Run:
 
             atom_serial = d["atom_number"]
             plddt = d["temp_factor"]  # B-factor como proxy de plddt o score
+            coords = [d["x"], d["y"], d["z"]]
 
-            residue.add_atom(unique_atom_name, atom_serial, plddt)
+            residue.add_atom(unique_atom_name, atom_serial, plddt, coords)
 
         # calcular promedios al final
         for ch in self.chains:
@@ -114,8 +115,8 @@ class Residue:
         self.atoms = []
         self.mean_plddt = None
 
-    def add_atom(self, atomname, atomid, plddt):
-        self.atoms.append(Atom(atomname, atomid, plddt))
+    def add_atom(self, atomname, atomid, plddt, coords):
+        self.atoms.append(Atom(atomname, atomid, plddt, coords))
 
     def get_mean_plddt(self):
         if self.atoms:
@@ -124,13 +125,18 @@ class Residue:
             self.mean_plddt = float("nan")
 
 class Atom:
-    def __init__(self, atomname, atomid, plddt):
+    def __init__(self, atomname, atomid, plddt, coords):
         self.name = atomname
         self.id = atomid
         self.plddt = plddt
+        self.coords = coords
 
 # Parse run
-def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}, model=0):
+def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}, model=0, keep_pdb=True):
+    '''
+    Parsea una corrida de AF3. Generalmente la corrida devuelve una carpeta (folder_path) con los modelos que genera y sus confianzas y metricas
+    '''
+
     cif_file = [f for f in os.listdir(folder_path) if f"model_{model}.cif" in f][0]
     cif_path = os.path.join(folder_path, cif_file)
 
@@ -140,6 +146,9 @@ def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "E
 
     run = Run(pdb_path, os.path.splitext(os.path.basename(pdb_path))[0], model)
     run.parse_structure(correct_resname=correct_resname)
+
+    if not keep_pdb:
+        os.remove(pdb_path)
     return run
 
 # Plot plDDT

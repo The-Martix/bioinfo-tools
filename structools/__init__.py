@@ -343,13 +343,126 @@ def cif_to_pdb(input_cif, outdir=None, show_print=True):
 
 ####################################################################################### PARSING PDBS ##################################################################################################
 
-# Obtener estructura de PDBParser
-def get_structure(pdb_path, format="pdb"):
-    if format == "pdb": parser = PDBParser(QUIET=True)  # QUIET=True evita warnings innecesarios
-    elif format == "cif": parser = MMCIFParser(QUIET=True)
-    else: raise ValueError(f"format '{format}' is not a valid format. Try whether with '.pdb' or '.cif' format")
+# OOP src to parse structures
+class Structure:
+    def __init__(self, _id):
+        self._id = id
+        self.chains = []
 
-    structure = parser.get_structure("model", pdb_path)
+    def add_chain(self, chain):
+        self.chains.append(chain)
+        chain.parent = self
+
+class Chain:
+    def __init__(self, _id):
+        self.id = _id
+        self.residues = []
+
+    def add_residue(self, residue):
+        self.residues.append(residue)
+        residue.parent = self
+
+class Residue:
+    def __init__(self, _id, name, pdb_id):
+        self.id = _id
+        self.name = name
+        self.pdb_id = pdb_id
+        self.atoms = []
+        self.atoms_record = None
+
+    def add_atom(self, atom):
+        self.atoms.append(atom)
+        atom.parent = self
+        self.atoms_record == atom.record
+
+class Atom:
+    def __init__(self, _id, name, coords, occupancy, bfactor, pdb_id, record):
+        self.id = _id
+        self.name = name
+        self.coords = coords
+        self.occupancy = occupancy
+        self.bfactor = bfactor
+        self.pdb_id = pdb_id
+        self.record = record
+
+# Get PDB file data dictionary in hierarchical order ({chain {residue {atom}}})
+def get_pdb_data_dict(pdb_path):
+    lines = open_pdb(pdb_path)
+    lines = [line for line in lines if line.startswith(("ATOM", "HETATOM", "HETATM"))]
+    data = {}
+    for line in lines:
+        line_data = parse_pdb_line(line)
+        
+        # Add new chain
+        if not line_data["chain_id"] in list(data.keys()): 
+            data[line_data["chain_id"]] = {}
+
+        # Add new residue
+        if not line_data["residue_number"] in list(data[line_data["chain_id"]].keys()):
+            data[line_data["chain_id"]][line_data["residue_number"]] = {}
+        
+        # Add residue data
+        data[line_data["chain_id"]][line_data["residue_number"]]["resname"] = line_data["residue_name"]
+        data[line_data["chain_id"]][line_data["residue_number"]]["resid"] = len(list(data[line_data["chain_id"]].keys()))
+        if not "atoms" in list(data[line_data["chain_id"]][line_data["residue_number"]].keys()):
+            data[line_data["chain_id"]][line_data["residue_number"]]["atoms"] = {}
+
+        # Add new atom
+        if not line_data["atom_number"] in list(data[line_data["chain_id"]][line_data["residue_number"]]["atoms"].keys()):
+            data[line_data["chain_id"]][line_data["residue_number"]]["atoms"][line_data["atom_number"]] = {}
+
+        # Add atom data
+        record = line_data["record"] if line_data["record"] != "HETATOM" else "HETATM" 
+        data[line_data["chain_id"]][line_data["residue_number"]]["atoms"][line_data["atom_number"]]["record"] = record
+        data[line_data["chain_id"]][line_data["residue_number"]]["atoms"][line_data["atom_number"]]["name"] = line_data["atom_name"]
+        data[line_data["chain_id"]][line_data["residue_number"]]["atoms"][line_data["atom_number"]]["atom_id"] = len(list(data[line_data["chain_id"]][line_data["residue_number"]]["atoms"].keys()))
+        data[line_data["chain_id"]][line_data["residue_number"]]["atoms"][line_data["atom_number"]]["coords"] = [line_data["x"], line_data["y"], line_data["z"]]
+        data[line_data["chain_id"]][line_data["residue_number"]]["atoms"][line_data["atom_number"]]["occupancy"] = line_data["occupancy"]
+        data[line_data["chain_id"]][line_data["residue_number"]]["atoms"][line_data["atom_number"]]["bfactor"] = line_data["temp_factor"]
+        
+    return data
+
+# Generate OOP structure
+def generate_structure(data, structure_id):
+    structure = Structure(structure_id)
+    # Add chains
+    for chain_id in list(data.keys()):
+        chain = Chain(chain_id)
+        # Add residues
+        for res_id in list(data[chain_id].keys()):
+            res_data = data[chain_id][res_id]
+            residue = Residue(res_data["resid"], res_data["resname"], res_id)
+            # Add atoms
+            for atom_id in list(data[chain_id][res_id]["atoms"].keys()):
+                atom_data = data[chain_id][res_id]["atoms"][atom_id]
+                atom = Atom(atom_data["atom_id"], atom_data["name"], atom_data["coords"], atom_data["occupancy"], atom_data["bfactor"], atom_id, atom_data["record"])
+                residue.add_atom(atom)
+            chain.add_residue(residue)
+        structure.add_chain(chain)
+    return structure
+
+# Obtener estructura de PDBParser
+def get_structure(pdb_path, format="pdb", src="PDBParser"):
+    '''
+    Get PDB structure from a pdb_path (if parsed with PDBParser it can also be a CIF file)
+    format: (str) pdb file type (pdb or cif)
+    src: (str) source of which you want to parse the structure (PDBParser or OOP (object oriented, which is basically my own way of parsing it))
+    '''
+
+    format = format.replace(".", "")  # Fix if user added the dot on '.pdb' or '.cif'
+
+    if src == "PDBParser":
+        if format == "pdb": parser = PDBParser(QUIET=True)  # QUIET=True evita warnings innecesarios
+        elif format == "cif": parser = MMCIFParser(QUIET=True)
+        else: raise ValueError(f"format '{format}' is not a valid format. Try whether with '.pdb' or '.cif' format")
+        structure = parser.get_structure("model", pdb_path)
+
+    if src == "OOP":
+        if format != "pdb": raise ValueError(f"format '{format}' is not a valid format. OOP only accepts '.pdb' format")
+        structure_id = os.path.basename(pdb_path)
+        pdb_data = get_pdb_data_dict(pdb_path)
+        structure = generate_structure(pdb_data, structure_id)
+
     return structure
 
 # Mapea una lista de residuos (en formato Position.Chain e.g. '147C') sobre una estructura y devuelve los objetos de los residuos
