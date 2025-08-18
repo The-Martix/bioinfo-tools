@@ -120,7 +120,7 @@ MIT
 ---
 
 ## Autor
-Desarrollado por [Tu Nombre] para aplicaciones de bioinformática estructural.
+Desarrollado por [Franco Salvatore] para aplicaciones de bioinformática estructural.
 
 ---
 
