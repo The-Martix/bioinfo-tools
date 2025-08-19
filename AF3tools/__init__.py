@@ -17,11 +17,9 @@ def load_json(file):
 
 class Run:
     def __init__(self, pdb_path, _id, model):
-        self.pdb_path = pdb_path
         self.id = _id
         self.model = model
-        self.chains = []
-        self.confidences_path = self.pdb_path.replace(f"model_{model}.pdb", f"summary_confidences_{model}.json")
+        self.confidences_path = pdb_path.replace(f"model_{model}.pdb", f"summary_confidences_{model}.json")
         self.get_confidences()
 
     def get_confidences(self):
@@ -29,107 +27,29 @@ class Run:
         self.iptm = self.conf_data['iptm']
         self.pTM = self.conf_data['ptm']
 
-    def parse_structure(self, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}):
-        """
-        Parseo usando structools.open_pdb y structools.parse_pdb_line.
-        Se evita Bio.PDB para no colapsar HETATM con nombres repetidos.
-        """
-        lines = structools.open_pdb(self.pdb_path)
-
-        # Mapa rápido para no duplicar objetos
-        chains_map = {}  # chain_id -> Chain
-        # (chain_id, resSeq, resNameNormalizado) -> Residue
-        residues_map = {}
-        # contadores por residuo para renombrar atomos repetidos (C1, C2...), por elemento
-        elem_counters = {}  # key_res -> dict(element -> count)
-
-        for line in lines:
-            if not (line.startswith("ATOM") or line.startswith("HETATM")):
-                continue
-
-            d = structools.parse_pdb_line(line)
-            chain_id = d["chain_id"]
-            resname_raw = d["residue_name"]
-            resseq = d["residue_number"]
-
-            # Normalización opcional de nombre de residuo por cadena
-            resname = resname_raw
-            if chain_id in correct_resname and resname_raw in correct_resname[chain_id]:
-                resname = correct_resname[chain_id][resname_raw]
-
-            # Crear/obtener Chain
-            if chain_id not in chains_map:
-                chains_map[chain_id] = Chain(chain_id)
-                self.chains.append(chains_map[chain_id])
-
-            # Crear/obtener Residue (clave incluye resSeq y resName normalizado)
-            res_key = (chain_id, resseq, resname)
-            if res_key not in residues_map:
-                residue = Residue(resname=resname, respos=resseq)
-                chains_map[chain_id].residues.append(residue)
-                residues_map[res_key] = residue
-                elem_counters[res_key] = {}
-
-            residue = residues_map[res_key]
-
-            # Elemento: del campo element; si falta, infiere de atom_name
-            element = (d["element"] or d["atom_name"].strip()[:2]).strip()
-            if len(element) == 0:
-                element = "X"
-            # normalizar a una o dos letras tipo PDB (primera mayúscula, segunda minúscula si existe)
-            element = element[0].upper() + (element[1:].lower() if len(element) > 1 else "")
-
-            # Contador por elemento dentro del residuo para crear nombres únicos
-            cnt = elem_counters[res_key].get(element, 0) + 1
-            elem_counters[res_key][element] = cnt
-            unique_atom_name = f"{element}{cnt}"
-
-            atom_serial = d["atom_number"]
-            plddt = d["temp_factor"]  # B-factor como proxy de plddt o score
-            coords = [d["x"], d["y"], d["z"]]
-
-            residue.add_atom(unique_atom_name, atom_serial, plddt, coords)
-
-        # calcular promedios al final
-        for ch in self.chains:
-            for r in ch.residues:
-                r.get_mean_plddt()
-            ch.get_mean_plddt()
-        self.mean_plddt = float(np.mean([ch.mean_plddt for ch in self.chains]))
-
-class Chain:
-    def __init__(self, _id):
-        self.id = _id
-        self.residues = []
-    
-    def get_mean_plddt(self):
-        if self.residues:
-            self.mean_plddt = float(np.mean([res.mean_plddt for res in self.residues]))
-        else:
-            self.mean_plddt = float("nan")
-
-class Residue:
-    def __init__(self, resname, respos):
-        self.resname = resname
-        self.respos = respos
-        self.atoms = []
-        self.mean_plddt = None
-
-    def add_atom(self, atomname, atomid, plddt, coords):
-        self.atoms.append(Atom(atomname, atomid, plddt, coords))
-
-    def get_mean_plddt(self):
-        if self.atoms:
-            self.mean_plddt = float(np.mean([atom.plddt for atom in self.atoms]))
-        else:
-            self.mean_plddt = float("nan")
-
-class Atom:
-    def __init__(self, atomname, atomid, plddt, coords):
-        self.name = atomname
-        self.id = atomid
-        self.plddt = plddt
-        self.coords = coords
+    def parse_structure(self, pdb_path, correct_resname={"B" : {"LG1" : "HEM"}, "C" : {"LG1", "EST"}}):
+        self.structure = structools.get_structure(pdb_path, format="pdb", src="OOP")
+        chains_plddt = []
+        for chain in self.structure.chains:
+            
+            # Correct resnames
+            if chain.id in list(correct_resname.keys()):
+                for res in chain.residues:
+                    if res.name in list(correct_resname[chain.id].keys()):
+                        res.name = correct_resname[chain.id]
+            
+            # Add plddt
+            residues_plddt = []
+            for res in chain.residues:
+                atoms_plddt = []
+                for atom in res.atoms:
+                    atom.plddt = atom.bfactor
+                    atoms_plddt.append(atom.plddt)
+                res.mean_plddt = float(np.mean(atoms_plddt))
+                residues_plddt.append(res.mean_plddt)
+            chain.mean_plddt = float(np.mean(residues_plddt))
+            chains_plddt.append(chain.mean_plddt)
+        self.structure.mean_plddt = float(np.mean(chains_plddt))
 
 # Parse run
 def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}, model=0, keep_pdb=True):
@@ -137,6 +57,7 @@ def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "E
     Parsea una corrida de AF3. Generalmente la corrida devuelve una carpeta (folder_path) con los modelos que genera y sus confianzas y metricas
     '''
 
+    # Find CIF file
     cif_file = [f for f in os.listdir(folder_path) if f"model_{model}.cif" in f][0]
     cif_path = os.path.join(folder_path, cif_file)
 
@@ -144,11 +65,13 @@ def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "E
     pdb_path = cif_path.replace(".cif", ".pdb")
     structools.cif_to_pdb(cif_path, show_print=False)
 
+    # Parse run
     run = Run(pdb_path, os.path.splitext(os.path.basename(pdb_path))[0], model)
-    run.parse_structure(correct_resname=correct_resname)
+    run.parse_structure(pdb_path, correct_resname=correct_resname)
 
-    if not keep_pdb:
-        os.remove(pdb_path)
+    # Remove pdb file generated
+    if not keep_pdb: os.remove(pdb_path)
+    
     return run
 
 # Plot plDDT
@@ -185,7 +108,7 @@ def plot_plddt(run,
     x_cursor = 0
 
     if level == "atom":
-        for ch in run.chains:
+        for ch in run.structure.chains:
             start = x_cursor
             for r in ch.residues:
                 for a in r.atoms:
@@ -256,7 +179,7 @@ def plot_plddt(run,
 
     elif level == "residue":
         # Un punto por residuo con su mean_plddt
-        for ch in run.chains:
+        for ch in run.structure.chains:
             start = x_cursor
             for r in ch.residues:
                 if r.mean_plddt is None or (isinstance(r.mean_plddt, float) and math.isnan(r.mean_plddt)):
@@ -290,7 +213,7 @@ def plot_plddt(run,
         # Una barra por cadena con su mean_plddt (ya calculada en run.parse_structure)
         labels = []
         means = []
-        for ch in run.chains:
+        for ch in run.structure.chains:
             labels.append(str(ch.id))
             # Si querés asegurar media a nivel atómico en lugar de la media de residuos:
             # atomic_vals = [a.plddt for r in ch.residues for a in r.atoms if a.plddt is not None and not math.isnan(a.plddt)]
@@ -316,7 +239,7 @@ def plot_plddt(run,
     else:
         raise ValueError("level must be 'atom', 'residue' o 'chain'.")
 
-    ax.set_ylim(bottom=0, top=105)
+    ax.set_ylim(bottom=0, top=1.05)
     ax.grid(True, axis="y", linestyle=":", linewidth=0.6, alpha=0.6)
     fig.tight_layout()
 

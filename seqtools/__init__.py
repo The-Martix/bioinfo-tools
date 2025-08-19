@@ -81,13 +81,13 @@ def open_fasta(fasta_file, seq_type="protein", allow_gaps=False):
     return seqs
 
 # Escribir fasta a partir de diccionario con {id: seq}
-def write_fasta(seqs_dict, outfile):
+def write_fasta(seqs_dict, outfile, show_print=True):
     file = open(outfile, "w")
     for _id, seq in zip(list(seqs_dict.keys()), list(seqs_dict.values())):
         file.write(f">{_id}\n")
         file.write(f"{seq}\n")
     file.close()
-    print(f"fasta file succesfully generated at {outfile}")
+    if show_print: print(f"fasta file succesfully generated at {outfile}")
 
 # Juntar varios fastas (como listas) en uno
 def merge_fastas(fasta_files, outfile):
@@ -101,11 +101,11 @@ def merge_fastas(fasta_files, outfile):
     print(f"Merged fasta succesfully generated at {outfile}")
 
 # Genera un archivo fatsa con el MSA generado por mafft (mafft debe estar en el PATH)
-def mafft_MSA(fasta_file, outfile):
+def mafft_MSA(fasta_file, outfile, show_print=True):
     check, msg = check_fasta(fasta_file)
     if not check: raise ValueError(f"Invalid FASTA file. {msg}")
     os.system(f"mafft {fasta_file} > {outfile}")
-    print(f"MSA succesfully generated at {outfile}")
+    if show_print: print(f"MSA succesfully generated at {outfile}")
 
 # Obtener residuos que alinean (i.e. matchean) en un MSA. add_pos agrega la posicion del residuo alineado. red_id es la seq que usa como referencia del MSA
 def get_aligned_residues(msa_file, add_pos=True, ref_id=0):

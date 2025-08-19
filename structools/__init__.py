@@ -7,9 +7,11 @@ from Bio.PDB.ResidueDepth import get_surface as GetRDSurface
 from Bio.PDB.ResidueDepth import min_dist
 import copy
 import aminotools
+import seqtools
 import numpy as np
 from scipy.spatial import cKDTree
 import os
+import string, re
 
 residues_names = ["ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"]
 
@@ -358,9 +360,10 @@ def _atomic_mass(atom):
 
 # OOP src to parse structures
 class Structure:
-    def __init__(self, data, _id):
+    def __init__(self, data, _id, path):
         self.data = data
         self.id = _id
+        self.path = path
         self.chains = []
 
     def add_chain(self, chain):
@@ -408,10 +411,49 @@ class Structure:
                                 'temp_factor' : atom.bfactor,
                                 'element' : atom.element
                             }
-                            lines.append(structools.unparse_pdb_line(data))
+                            lines.append(unparse_pdb_line(data))
         file = open(pdb_path, "w")
         for line in lines: file.write(line)
         file.close()
+
+    # Get chains sequences (if peptide chain)
+    def get_sequence(self, chains_ids=None):
+        if not chains_ids: chains_ids = [chain.id for chain in self.chains]
+        self.sequence = {}
+        for chain in self.chains:
+            if not chain.id in chains_ids: continue
+            last_res_id = 1
+            seq = ""
+            for res in chain.residues:
+                if res.atoms_record == "ATOM":
+                    for i in range(res.id - 1 - last_res_id): seq += "X"
+                    seq += aminotools.convert_amino_acid_letter(res.name)
+                last_res_id = res.id
+            if seq: self.sequence[chain.id] = seq
+        return self.sequence
+
+    # Write FASTA file
+    def write_fasta(self, fasta_path, chains_ids):
+        self.get_sequence(chains_ids=chains_ids)
+        seqtools.write_fasta(self.sequence, fasta_path, show_print=False)
+
+    # Reset resids
+    def reset_resids(self):
+        for chain in self.chains:
+            for i, res in enumerate(chain.residues):
+                res.id = i+1
+                for j, atom in enumerate(res.atoms):
+                    atom.id = j+1
+
+    # Reset chains index
+    def reset_chains_index(self, chains_index=None):
+        '''
+        reset chains index from A to Z (default)
+        chains_index: iterable[str] new chains indexes in order. If None, from A to Z
+        '''
+        
+        if not chains_index: chains_index = list(string.ascii_uppercase)
+        for i, chain in enumerate(self.chains): chain.id = chains_index[i]
 
     def rename_hetatoms(self, data):
         '''
@@ -444,7 +486,7 @@ class Structure:
         return f"{base_id}_{i}"
 
     # --- merge ---
-    def merge_chains(self, chain_ids, new_chain_id=None, renumber=True):
+    def merge_chains(self, chain_ids, new_chain_id=None, renumber=True, reset_chains_ids=True):
         """
         Merge given chains into one chain.
 
@@ -490,9 +532,11 @@ class Structure:
         keep = [c for c in self.chains if c.id not in chain_ids]
         keep.insert(insert_pos, merged)
         self.chains = keep
+        if reset_chains_ids: 
+            self.reset_chains_index()
 
     # --- split ---
-    def split_chain(self, chain_id, residue_id_groups, new_chain_ids=None, renumber=True):
+    def split_chain(self, chain_id, residue_id_groups, new_chain_ids=None, renumber=True, reset_chains_ids=True):
         """
         Split one chain into multiple chains by groups of residue.id.
 
@@ -557,6 +601,27 @@ class Structure:
         self.chains.pop(original_index)
         for offset, nc in enumerate(new_chains):
             self.chains.insert(original_index + offset, nc)
+
+        if reset_chains_ids:
+            self.reset_chains_index()
+
+    # Split chains by ligands (aminoacids in one chain and hetatoms in the other)
+    def split_chain_by_hetatoms(self, chain_id, new_chain_ids=None, renumber=True, reset_chains_ids=True):
+        chain = self._get_chain_by_id(chain_id)
+        i = self.chains.index(chain)
+        ids = new_chain_ids or [f"{chain_id}_A", f"{chain_id}_B"]
+        if len(ids) != 2: raise ValueError("new_chain_ids must have 2 IDs")
+
+        std, het = Chain(ids[0]), Chain(ids[1])
+        for r in chain.residues:
+            (std if all(a.record=="ATOM" for a in r.atoms) else het).add_residue(r)
+
+        if renumber:
+            for j, r in enumerate(std.residues,1): r.id=j
+            for j, r in enumerate(het.residues,1): r.id=j
+
+        self.chains[i:i+1] = [std, het]
+        if reset_chains_ids: self.reset_chains_index()
 
     def _drop_empty_chains(self):
         """Quita cadenas sin residuos."""
@@ -673,6 +738,231 @@ class Chain:
         M = masses.sum()
         return coords.mean(axis=0) if M == 0 else (masses[:, None] * coords).sum(axis=0) / M
 
+    # Get Chain sequence
+    def get_sequence(self):
+        return self.parent.get_sequence(chains_ids=[self.id])[self.id]
+
+    # Align Sequences
+    def align_sequences(self, chains, keep_files=False):
+        if not isinstance(chains, list): chains = [chains]
+        seqs_dict = {f"{self.parent.id}_{self.id}" : self.get_sequence()}
+        for chain in chains: seqs_dict[f"{chain.parent.id}_{chain.id}"] = chain.get_sequence()
+        data_path = self.parent.path.replace(os.path.basename(self.parent.path), "")[:-1]
+        seqtools.write_fasta(seqs_dict, rf"{data_path}\sequences.fasta", show_print=False)
+        seqtools.mafft_MSA(rf"{data_path}\sequences.fasta", rf"{data_path}\MSA_sequences.fasta", show_print=False)
+        aligned_seqs = seqtools.open_fasta(rf"{data_path}\MSA_sequences.fasta", allow_gaps=True)
+        if not keep_files:
+            os.remove(rf"{data_path}\sequences.fasta")
+            os.remove(rf"{data_path}\MSA_sequences.fasta")
+        return aligned_seqs
+    
+    # Get Aligned residues based on seq alignment
+    def get_aligned_residues(self, chain, match=False):
+        aligned_seqs = self.align_sequences(chains=chain, keep_files=False)
+        
+        key1, key2 = list(aligned_seqs.keys())
+
+        aligned_residues = {key1: [], key2: []}
+        i, j = 0, 0
+        for res1, res2 in zip(aligned_seqs[key1], aligned_seqs[key2]):
+            if res1 != "-": i += 1
+            if res2 != "-": j += 1
+
+            if res1 != "-" and res2 != "-":
+                if match and res1 == res2:
+                    aligned_residues[key1].append(f"{res1}{i}")
+                    aligned_residues[key2].append(f"{res2}{j}")
+                elif not match:
+                    aligned_residues[key1].append(f"{res1}{i}")
+                    aligned_residues[key2].append(f"{res2}{j}")
+            
+        return aligned_residues
+                
+    # Get RMSD of aligned structures
+    def align(self, ref_chain, keep_files=False, match=False, max_cycles=5, min_rmsd_tolerance=2.0, atom_mode='CA', min_amount_aligned_residues=None, show_log=True):
+        """
+        Alinea esta cadena (self) contra ref_chain usando CA o backbone (N,CA,C,O) para calcular el RMSD.
+        Refinamiento iterativo: corta outliers > cutoff (min_rmsd_tolerance) y re-encaja hasta max_cycles.
+
+        Parámetros
+        ----------
+        ref_chain : Chain
+            Cadena de referencia.
+        keep_files : bool
+            Se propaga a tu pipeline de alineamiento de secuencias (si aplica).
+        match : bool
+            Si True, sólo usa pares con mismo aminoácido (según tu get_aligned_residues).
+        max_cycles : int
+            Máximo de ciclos de poda/refit.
+        min_rmsd_tolerance : float
+            Cutoff en Å para descartar outliers en cada ciclo (tipo PyMOL ~2.0 Å).
+        atom_mode : str
+            'CA' (default) o 'backbone' (usa N, CA, C, O donde ambas cadenas los tengan) o 'any': usa todos los átomos cuyo name coincida entre residuos mapeados.
+            Si ambas cadenas contienen solo heteroatoms, cambia a modo ligando donde alinea los atomos que compartan nombre y id
+
+        Return
+        ------
+        Chain
+            Nueva cadena con sus coordenadas corregidas segun el alineamiento
+        float
+            RMSD final (Å) tras el refinamiento.
+        """
+
+        # --- utilidades ---
+        def _kabsch_RT(P, Q):
+            P = np.asarray(P, float); Q = np.asarray(Q, float)
+            muP, muQ = P.mean(0), Q.mean(0)
+            P0, Q0 = P - muP, Q - muQ
+            H = P0.T @ Q0
+            U, S, Vt = np.linalg.svd(H)
+            if np.linalg.det(U) * np.linalg.det(Vt) < 0: U[:, -1] *= -1
+            R = U @ Vt; t = muQ - muP @ R
+            return R, t
+
+        def _clone_chain_with_RT(chain, R, t):
+            new = Chain(chain.id)
+            for r in chain.residues:
+                nr = Residue(r.id, r.name, r.pdb_id); nr.atoms_record = r.atoms_record
+                for a in r.atoms:
+                    nc = (a.coords @ R) + t
+                    na = Atom(a.id, a.name, nc, a.occupancy, a.bfactor, a.pdb_id, a.record); na.element = a.element
+                    nr.add_atom(na)
+                new.add_residue(nr)
+            return new
+
+        def _to_idx(tag):
+            m = re.search(r'(\d+)', str(tag))
+            if not m: raise ValueError(f"No pude extraer índice de residuo desde '{tag}'")
+            return int(m.group(1))
+
+        def _find(res, name):
+            nU = name.upper()
+            for a in res.atoms:
+                if a.name.strip().upper() == nU: return a
+            return None
+
+        # --- detectar modo ligando (HETATM-only) ---
+        only_het_self = all((getattr(r, "atoms_record", None) in ("HETATM","HETATOM")) for r in self.residues) and len(self.residues)>0
+        only_het_ref  = all((getattr(r, "atoms_record", None) in ("HETATM","HETATOM")) for r in ref_chain.residues) and len(ref_chain.residues)>0
+        het_mode = (only_het_self and only_het_ref)
+
+        P, Q = [], []
+        if het_mode:
+            # --- construir P/Q sin secuencias ---
+            # Emparejar residuos por resname; si querés, agrega "and rs.pdb_id == rr.pdb_id" en el zip.
+            from collections import defaultdict
+            gs, gr = defaultdict(list), defaultdict(list)
+            for rs in self.residues:     gs[(rs.name or '').upper()].append(rs)
+            for rr in ref_chain.residues: gr[(rr.name or '').upper()].append(rr)
+
+            # Orden estable por (pdb_id, id) para emparejar determinísticamente
+            pairs = []
+            for name in sorted(set(gs) & set(gr)):
+                A = sorted(gs[name], key=lambda r: (str(r.pdb_id), r.id))
+                B = sorted(gr[name], key=lambda r: (str(r.pdb_id), r.id))
+                for rs, rr in zip(A, B):
+                    pairs.append((rs, rr))
+
+            # Átomos que coincidan por nombre en cada par de residuos
+            for rs, rr in pairs:
+                # clave única: nombre + id
+                def _akey(a):
+                    return f"{a.name.strip().upper()}{a.id}"
+
+                dict_s = { _akey(a): a for a in rs.atoms }
+                dict_r = { _akey(a): a for a in rr.atoms }
+
+                # intersección de claves
+                for k in sorted(set(dict_s) & set(dict_r)):
+                    P.append(dict_s[k].coords)
+                    Q.append(dict_r[k].coords)
+
+            mode_used = "hetero"
+            if show_log:
+                print(f"MatchAlign: aligning hetero residues ({len(pairs)} pairs)...")
+        else:
+            # --- camino proteico: usar tu MSA/mapeo por secuencias ---
+            aligned = self.get_aligned_residues(ref_chain, match=match)
+            k_self, k_ref = list(aligned.keys()); lst_self, lst_ref = aligned[k_self], aligned[k_ref]
+            ids_self = [_to_idx(x) for x in lst_self]; ids_ref = [_to_idx(x) for x in lst_ref]
+            map_self = {r.id: r for r in self.residues}; map_ref = {r.id: r for r in ref_chain.residues}
+
+            mode_used = atom_mode.lower()
+            if mode_used == 'ca':
+                for i, j in zip(ids_self, ids_ref):
+                    rs, rr = map_self.get(i), map_ref.get(j)
+                    if not (rs and rr): continue
+                    a_s = _find(rs, 'CA'); a_r = _find(rr, 'CA')
+                    if a_s is None or a_r is None: continue
+                    P.append(a_s.coords); Q.append(a_r.coords)
+            elif mode_used == 'backbone':
+                for i, j in zip(ids_self, ids_ref):
+                    rs, rr = map_self.get(i), map_ref.get(j)
+                    if not (rs and rr): continue
+                    for nm in ('N','CA','C','O'):
+                        a_s = _find(rs, nm); a_r = _find(rr, nm)
+                        if a_s is None or a_r is None: continue
+                        P.append(a_s.coords); Q.append(a_r.coords)
+            elif mode_used == 'any':
+                # Para cada par de residuos mapeados, tomar TODOS los átomos cuyo name coincida
+                for i, j in zip(ids_self, ids_ref):
+                    rs, rr = map_self.get(i), map_ref.get(j)
+                    if not (rs and rr): 
+                        continue
+                    # diccionarios nombre->átomo (normalizado)
+                    ds = {a.name.strip().upper(): a for a in rs.atoms}
+                    dr = {a.name.strip().upper(): a for a in rr.atoms}
+                    # intersección de nombres
+                    for nm in (set(ds.keys()) & set(dr.keys())):
+                        P.append(ds[nm].coords); Q.append(dr[nm].coords)
+            else:
+                raise ValueError("atom_mode debe ser 'CA', 'backbone' o 'any'")
+
+            if show_log:
+                print(f"MatchAlign: aligning residues (proteic, mode={mode_used})...")
+
+        P = np.asarray(P, float); Q = np.asarray(Q, float)
+        if P.shape[0] < 3:
+            raise ValueError(f"Se requieren al menos 3 pares de puntos; obtenidos {P.shape[0]}")
+
+        if min_amount_aligned_residues is None:
+            min_amount_aligned_residues = max(3, int(0.5 * len(P)))
+
+        if show_log:
+            print(f"ExecutiveAlign: {len(P)} atoms aligned.")
+
+        # --- refinamiento iterativo (poda por cutoff) ---
+        mask = np.ones(len(P), dtype=bool); last_rmsd = None
+        for cyc in range(1, int(max_cycles) + 1):
+            R, t = _kabsch_RT(P[mask], Q[mask])
+            Prot = (P[mask] @ R) + t
+            d = np.linalg.norm(Prot - Q[mask], axis=1)
+            inliers = d <= float(min_rmsd_tolerance)
+
+            idx_mask = np.where(mask)[0]
+            new_mask = mask.copy()
+            new_mask[idx_mask[~inliers]] = False
+
+            rmsd_now = float(np.sqrt((d**2).mean()))
+            rejected = int(mask.sum() - new_mask.sum())
+            if show_log and rejected > 0:
+                print(f"ExecutiveRMS: {rejected} atoms rejected during cycle {cyc} (RMSD={rmsd_now:.2f}).")
+
+            if rejected == 0 or new_mask.sum() < min_amount_aligned_residues:
+                last_rmsd = rmsd_now; mask = new_mask; break
+            mask = new_mask; last_rmsd = rmsd_now
+
+        # --- transformación final y salida ---
+        R, t = _kabsch_RT(P[mask], Q[mask])
+        new_chain = _clone_chain_with_RT(self, R, t)
+        Prot = (P[mask] @ R) + t
+        final_rmsd = float(np.sqrt(((Prot - Q[mask])**2).sum(axis=1).mean()))
+
+        if show_log:
+            n = int(mask.sum()); print(f"Executive: RMSD = {final_rmsd:8.3f} ({n} to {n} atoms)")
+
+        return new_chain, final_rmsd
+
 class Residue:
     def __init__(self, _id, name, pdb_id):
         self.id = _id
@@ -705,7 +995,7 @@ class Atom:
     def __init__(self, _id, name, coords, occupancy, bfactor, pdb_id, record):
         self.id = _id
         self.name = name
-        self.coords = coords
+        self.coords = np.array(coords)
         self.occupancy = occupancy
         self.bfactor = bfactor
         self.pdb_id = pdb_id
@@ -755,8 +1045,8 @@ def get_pdb_data_dict(pdb_path):
     return data
 
 # Generate OOP structure
-def generate_structure(data, structure_id):
-    structure = Structure(data, structure_id)
+def generate_structure(data, structure_id, pdb_path):
+    structure = Structure(data, structure_id, pdb_path)
     # Add chains
     for chain_id in list(data.keys()):
         chain = Chain(chain_id)
@@ -774,11 +1064,12 @@ def generate_structure(data, structure_id):
     return structure
 
 # Obtener estructura de PDBParser
-def get_structure(pdb_path, format="pdb", src="PDBParser"):
+def get_structure(pdb_path, format="pdb", src="PDBParser", structure_id=None):
     '''
     Get PDB structure from a pdb_path (if parsed with PDBParser it can also be a CIF file)
     format: (str) pdb file type (pdb or cif)
     src: (str) source of which you want to parse the structure (PDBParser or OOP (object oriented, which is basically my own way of parsing it))
+    structure_id: (str) (optional). ID for structure object with OOP. By default its pdb_path basename
     '''
 
     format = format.replace(".", "")  # Fix if user added the dot on '.pdb' or '.cif'
@@ -791,9 +1082,9 @@ def get_structure(pdb_path, format="pdb", src="PDBParser"):
 
     if src == "OOP":
         if format != "pdb": raise ValueError(f"format '{format}' is not a valid format. OOP only accepts '.pdb' format")
-        structure_id = os.path.basename(pdb_path)
+        if not structure_id: structure_id = os.path.basename(pdb_path).split(".")[0].strip()
         pdb_data = get_pdb_data_dict(pdb_path)
-        structure = generate_structure(pdb_data, structure_id)
+        structure = generate_structure(pdb_data, structure_id, pdb_path)
 
     return structure
 
