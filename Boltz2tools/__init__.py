@@ -1,4 +1,4 @@
-# This script parse AlphaFold3 (AF3) runs and its metrics. By Franco Salvatore, 2025
+# This script parses Boltz-2 runs and its metrics. By Franco Salvatore, 2025
 
 import os
 import structools
@@ -16,19 +16,17 @@ def load_json(file):
     return data
 
 class Run:
-    def __init__(self, pdb_path, _id, model):
+    def __init__(self, path, _id):
         self.id = _id
-        self.model = model
-        self.confidences_path = pdb_path.replace(f"model_{model}.pdb", f"summary_confidences_{model}.json")
+        self.path = path
+        self.predictions_folder_path = os.path.join(self.path, f"boltz_results_{self.id}", "predictions", self.id)
         self.get_confidences()
 
     def get_confidences(self):
-        self.conf_data = load_json(self.confidences_path)
-        self.iptm = self.conf_data['iptm']
-        self.pTM = self.conf_data['ptm']
+        self.confidences = load_json(os.path.join(self.predictions_folder_path, f"confidence_{self.id}_model_0.json"))
 
-    def parse_structure(self, pdb_path, correct_resname={"B" : {"LG1" : "HEM"}, "C" : {"LG1" : "EST"}}):
-        self.structure = structools.get_structure(pdb_path, format="pdb", src="OOP")
+    def parse_structure(self, correct_resname={"B" : {"LG1" : "HEM"}, "C" : {"LG1" : "EST"}}):
+        self.structure = structools.get_structure(os.path.join(self.predictions_folder_path, f"{self.id}_model_0.pdb"), src="OOP")
         chains_plddt = []
         for chain in self.structure.chains:
             
@@ -52,26 +50,9 @@ class Run:
         self.structure.mean_plddt = float(np.mean(chains_plddt))
 
 # Parse run
-def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1": "EST"}}, model=0, keep_pdb=True):
-    '''
-    Parsea una corrida de AF3. Generalmente la corrida devuelve una carpeta (folder_path) con los modelos que genera y sus confianzas y metricas
-    '''
-
-    # Find CIF file
-    cif_file = [f for f in os.listdir(folder_path) if f"model_{model}.cif" in f][0]
-    cif_path = os.path.join(folder_path, cif_file)
-
-    # Generate pdb files from cif files
-    pdb_path = cif_path.replace(".cif", ".pdb")
-    structools.cif_to_pdb(cif_path, show_print=False)
-
-    # Parse run
-    run = Run(pdb_path, os.path.splitext(os.path.basename(pdb_path))[0], model)
-    run.parse_structure(pdb_path, correct_resname=correct_resname)
-
-    # Remove pdb file generated
-    if not keep_pdb: os.remove(pdb_path)
-    
+def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1" : "EST"}}):
+    run = Run(folder_path, os.path.splitext(os.path.basename(folder_path))[0])
+    run.parse_structure(correct_resname=correct_resname)
     return run
 
 # Plot plDDT
