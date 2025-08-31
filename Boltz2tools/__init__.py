@@ -25,6 +25,9 @@ class Run:
     def get_confidences(self):
         self.confidences = load_json(os.path.join(self.predictions_folder_path, f"confidence_{self.id}_model_0.json"))
 
+    def get_binding(self):
+        self.binding = load_json(os.path.join(self.predictions_folder_path, f"affinity_{self.id}.json"))
+
     def parse_structure(self, correct_resname={"B" : {"LG1" : "HEM"}, "C" : {"LG1" : "EST"}}):
         self.structure = structools.get_structure(os.path.join(self.predictions_folder_path, f"{self.id}_model_0.pdb"), src="OOP")
         chains_plddt = []
@@ -50,9 +53,10 @@ class Run:
         self.structure.mean_plddt = float(np.mean(chains_plddt))
 
 # Parse run
-def parse_run(folder_path, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1" : "EST"}}):
+def parse_run(folder_path, add_binding=False, correct_resname={"B": {"LG1": "HEM"}, "C": {"LG1" : "EST"}}):
     run = Run(folder_path, os.path.splitext(os.path.basename(folder_path))[0])
     run.parse_structure(correct_resname=correct_resname)
+    if add_binding: run.get_binding()
     return run
 
 # Plot plDDT
