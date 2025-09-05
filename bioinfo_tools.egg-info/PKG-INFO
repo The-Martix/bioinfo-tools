@@ -1,0 +1,105 @@
+Metadata-Version: 2.4
+Name: bioinfo-tools
+Version: 0.1.0
+Summary: A collection of bioinformatics tools including structools, aminotools, seqtools, chemtools, and more
+Author: Bioinfo Tools Contributors
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: requests
+Requires-Dist: matplotlib
+Requires-Dist: seaborn
+Requires-Dist: rdkit
+Requires-Dist: biopython
+Requires-Dist: numpy
+Requires-Dist: scipy
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: flake8; extra == "dev"
+
+# Bioinfo Tools
+
+A collection of bioinformatics tools including structools, aminotools, seqtools, chemtools, and more.
+
+## Installation
+
+This package can be installed using pip directly from the source directory or from a Python package repository.
+
+### Install from Source (Recommended for Development)
+
+1. Clone or download this repository
+2. Navigate to the project directory
+3. Install in development mode:
+
+```bash
+pip install -e .
+```
+
+This installs the package in "editable" mode, meaning changes to the source code are immediately reflected without reinstalling.
+
+### Install from Source (Standard Installation)
+
+```bash
+pip install .
+```
+
+### Install with Development Dependencies
+
+To install with additional development tools (pytest, black, flake8):
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Requirements
+
+- Python 3.8 or higher
+- Dependencies are automatically installed with pip:
+  - requests
+  - matplotlib
+  - seaborn
+  - rdkit
+  - biopython
+  - numpy
+  - scipy
+
+## Usage
+
+After installation, you can import any of the tool modules:
+
+```python
+from structools import *
+from aminotools import *
+from seqtools import *
+from chemtools import *
+```
+
+## Alternative Installation (PYTHONPATH Method - Legacy)
+
+If you prefer not to use pip installation, you can still use the older PYTHONPATH method:
+
+### 🪟 Windows
+```cmd
+setx PYTHONPATH "C:\path\to\bioinfo-tools"
+```
+
+### 🐧 Linux / 🍎 macOS
+Add to your `~/.bashrc`, `~/.zshrc`, or `~/.profile`:
+```bash
+export PYTHONPATH="/path/to/bioinfo-tools:$PYTHONPATH"
+```
+
+Then run:
+```bash
+source ~/.bashrc  # or your shell config file
+```

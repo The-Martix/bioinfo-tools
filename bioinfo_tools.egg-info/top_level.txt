@@ -1,0 +1,8 @@
+AF3tools
+Boltz2tools
+LigandMPNNtools
+RFAAtools
+aminotools
+chemtools
+seqtools
+structools

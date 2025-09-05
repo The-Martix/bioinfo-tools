@@ -1,0 +1,12 @@
+requests
+matplotlib
+seaborn
+rdkit
+biopython
+numpy
+scipy
+
+[dev]
+pytest
+black
+flake8

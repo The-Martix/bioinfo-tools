@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+./AF3tools/__init__.py
+./Boltz2tools/__init__.py
+./LigandMPNNtools/__init__.py
+./RFAAtools/__init__.py
+./aminotools/__init__.py
+./chemtools/__init__.py
+./seqtools/__init__.py
+./structools/__init__.py
+bioinfo_tools.egg-info/PKG-INFO
+bioinfo_tools.egg-info/SOURCES.txt
+bioinfo_tools.egg-info/dependency_links.txt
+bioinfo_tools.egg-info/requires.txt
+bioinfo_tools.egg-info/top_level.txt

@@ -1,50 +1,76 @@
-## README - How to Import These Libraries from Any Script 
-=======================================================
+# Bioinfo Tools
 
-To use these libraries (structools, aminotools, seqtools, chemtools) from any Python script on your system,
-you need to add the folder containing them to your global PYTHONPATH. This tells Python where to look for the modules.
+A collection of bioinformatics tools including structools, aminotools, seqtools, chemtools, and more.
 
--------------------------------------------------------
-STEPS BY OPERATING SYSTEM
--------------------------------------------------------
+## Installation
 
-🪟 WINDOWS
-----------
+This package can be installed using pip directly from the source directory or from a Python package repository.
 
-1. Copy the absolute path to the folder containing the libraries, for example:
-   C:\Users\YourUser\Documents\bioinfo_libs
+### Install from Source (Recommended for Development)
 
-2. Open a terminal (cmd or PowerShell) and run:
+1. Clone or download this repository
+2. Navigate to the project directory
+3. Install in development mode:
 
-   setx PYTHONPATH "C:\Users\YourUser\Documents\bioinfo_libs"
-
-3. Restart the terminal (or your computer) for the changes to take effect.
-
-🐧 LINUX / 🍎 macOS
-------------------
-
-1. Copy the absolute path to the folder, for example:
-   /home/your_user/bioinfo_libs
-
-2. Add the following line to the end of your `~/.bashrc`, `~/.zshrc`, or `~/.profile` file:
-
-   export PYTHONPATH="/home/your_user/bioinfo_libs:$PYTHONPATH"
-
-3. Save the file and run:
-
-   source ~/.bashrc       (or the file matching your shell)
-
--------------------------------------------------------
-USAGE IN A SCRIPT
--------------------------------------------------------
-
-Once configured, you can import the modules from anywhere like this:
-
-```python
-    from structools import *
-    from aminotools import *
-    from seqtools import *
-    from chemtools import *
+```bash
+pip install -e .
 ```
 
--------------------------------------------------------
+This installs the package in "editable" mode, meaning changes to the source code are immediately reflected without reinstalling.
+
+### Install from Source (Standard Installation)
+
+```bash
+pip install .
+```
+
+### Install with Development Dependencies
+
+To install with additional development tools (pytest, black, flake8):
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Requirements
+
+- Python 3.8 or higher
+- Dependencies are automatically installed with pip:
+  - requests
+  - matplotlib
+  - seaborn
+  - rdkit
+  - biopython
+  - numpy
+  - scipy
+
+## Usage
+
+After installation, you can import any of the tool modules:
+
+```python
+from structools import *
+from aminotools import *
+from seqtools import *
+from chemtools import *
+```
+
+## Alternative Installation (PYTHONPATH Method - Legacy)
+
+If you prefer not to use pip installation, you can still use the older PYTHONPATH method:
+
+### 🪟 Windows
+```cmd
+setx PYTHONPATH "C:\path\to\bioinfo-tools"
+```
+
+### 🐧 Linux / 🍎 macOS
+Add to your `~/.bashrc`, `~/.zshrc`, or `~/.profile`:
+```bash
+export PYTHONPATH="/path/to/bioinfo-tools:$PYTHONPATH"
+```
+
+Then run:
+```bash
+source ~/.bashrc  # or your shell config file
+```
