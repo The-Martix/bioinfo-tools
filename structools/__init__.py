@@ -445,6 +445,14 @@ class Structure:
                 for j, atom in enumerate(res.atoms):
                     atom.id = j+1
 
+    # Reset pdb_ids
+    def reset_pdb_ids(self):
+        for chain in self.chains:
+            for i, res in enumerate(chain.residues):
+                res.pdb_id = i+1
+                for j, atom in enumerate(res.atoms):
+                    atom.pdb_id = j+1
+
     # Reset chains index
     def reset_chains_index(self, chains_index=None):
         '''
@@ -961,7 +969,7 @@ class Chain:
         if show_log:
             n = int(mask.sum()); print(f"Executive: RMSD = {final_rmsd:8.3f} ({n} to {n} atoms)")
 
-        return new_chain, final_rmsd
+        return new_chain, final_rmsd, R, t
 
 class Residue:
     def __init__(self, _id, name, pdb_id):
